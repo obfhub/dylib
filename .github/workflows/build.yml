@@ -1,0 +1,35 @@
+name: Build macOS dylib
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Build dylib
+      run: |
+        clang -dynamiclib ui_dylib.m \
+          -o libui.dylib \
+          -framework Cocoa \
+          -install_name @rpath/libui.dylib
+
+    - name: Build host
+      run: |
+        clang host.m \
+          -o host \
+          -framework Cocoa
+
+    - name: Upload compiled files
+      uses: actions/upload-artifact@v3
+      with:
+        name: macos-build
+        path: |
+          libui.dylib
+          host
