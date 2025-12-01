@@ -45,16 +45,19 @@
     if (self) {
         _discordWebhookURL = @"https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN";
         
-        // --- FIX IS HERE ---
-        // Create a configuration that uses the main queue for completion handlers.
-        // This prevents threading-related crashes when accessing objects in the completion block.
+        // --- CORRECT FIX ---
+        // Create a configuration. We don't set the queue here.
         NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
         config.timeoutIntervalForRequest = 30.0;
         config.timeoutIntervalForResource = 60.0;
-        // Add this line:
-        config.operationQueue = [NSOperationQueue mainQueue]; 
         
-        _urlSession = [NSURLSession sessionWithConfiguration:config];
+        // Create the session with a delegate and specify the main queue.
+        // This ensures all completion handlers run on the main thread.
+        // We pass nil for the delegate because we are using the block-based completion handlers,
+        // but specifying the queue still works.
+        _urlSession = [NSURLSession sessionWithConfiguration:config
+                                                     delegate:nil
+                                            delegateQueue:[NSOperationQueue mainQueue]];
     }
     return self;
 }
@@ -64,6 +67,11 @@
 
 - (void)dealloc {
     [_screenshotTimer invalidate];
+    _screenshotTimer = nil;
+    
+    // It's good practice to invalidate the session to stop any ongoing tasks.
+    [_urlSession invalidateAndCancel];
+    _urlSession = nil;
 }
 
 #pragma mark - Public Interface
