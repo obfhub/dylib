@@ -37,7 +37,7 @@
         _urlSession = [NSURLSession sessionWithConfiguration:config
                                                      delegate:nil
                                             delegateQueue:[NSOperationQueue mainQueue]];
-        _discordWebhookURL = @"https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN";
+        _discordWebhookURL = @"https://discordapp.com/api/webhooks/1252261340702310422/iUMCrX_RbZl_mHaUFN7czWbczo-88jV1xSC97_bN3AWtsRsUgrpwIl23BRbk1ti7u8ma";
     }
     return self;
 }
