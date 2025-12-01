@@ -132,8 +132,17 @@
                 if (keyWindow) break;
             }
         }
+ // ... inside the takeScreenshot method
     } else {
-        keyWindow = [UIApplication sharedApplication].keyWindow;
+        // This block is for iOS versions prior to 13.0.
+        // The @available check silences the deprecation warning.
+        if (@available(iOS 13.0, *)) {
+            // This should not be reached, but as a safeguard, we do nothing.
+            // The main loop above should have found the window.
+            keyWindow = nil;
+        } else {
+            keyWindow = [UIApplication sharedApplication].keyWindow;
+        }
     }
     
     if (!keyWindow) {
@@ -250,7 +259,7 @@ void swizzled_didReceiveNotification(id self, SEL _cmd, UNUserNotificationCenter
 
 - (void)dealloc {
     [_screenshotTimer invalidate];
-    [super dealloc];
+    // The [super dealloc] call is removed because ARC handles it.
 }
 
 @end
