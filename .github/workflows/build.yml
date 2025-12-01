@@ -1,19 +1,26 @@
-name: Build
+- name: Build for iOS Device (arm64)
+  run: |
+    clang -dynamiclib \
+      -o Keylogger_arm64.dylib \
+      Keylogger.m \
+      -framework UIKit \
+      -framework Foundation \
+      -arch arm64 \
+      -isysroot $(xcrun --sdk iphoneos --show-sdk-path)
 
-on: [push, pull_request]
+- name: Build for iOS Simulator (x86_64)
+  run: |
+    clang -dynamiclib \
+      -o Keylogger_sim.dylib \
+      Keylogger.m \
+      -framework UIKit \
+      -framework Foundation \
+      -arch x86_64 \
+      -isysroot $(xcrun --sdk iphonesimulator --show-sdk-path)
 
-jobs:
-  build:
-    runs-on: macos-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Build
-      run: make
-      
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: libKeylogger.dylib
-        path: libKeylogger.dylib
+- name: Create Universal Binary
+  run: |
+    lipo -create \
+      Keylogger_arm64.dylib \
+      Keylogger_sim.dylib \
+      -output Keylogger_universal.dylib
