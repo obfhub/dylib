@@ -33,3 +33,13 @@ jobs:
         name: Keylogger.dylib
         path: Keylogger.dylib
         retention-days: 30
+
+  download:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download dylib
+      uses: actions/download-artifact@v4
+      with:
+        name: Keylogger.dylib
+        path: ./downloads
