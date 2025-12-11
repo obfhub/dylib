@@ -1,5 +1,5 @@
 // modmenu.m – Unlimited Everything toggle for Subway Surfers
-// Works on iOS 13 → 18.2 non-jailbroken – floating ∞ button
+// Works iOS 13 → 18.2 non-jailbroken – floating ∞ button
 
 #import <UIKit/UIKit.h>
 #import <mach-o/dyld.h>
@@ -15,29 +15,34 @@ static void handleTap() {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Subway Surfers"
                                                                    message:enabled ? @"UNLIMITED ON" : @"Unlimited OFF"
                                                             preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil];
 
-    // Proper way to get the current view controller in 2025
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK"
+                                              style:UIAlertActionStyleDefault
+                                            handler:nil]];
+
+    // Get top-most view controller (2025-safe)
     UIViewController *vc = UIApplication.sharedApplication.windows.firstObject.rootViewController;
-    while (vc.presentedViewController) vc = vc.presentedViewController;
+    while (vc.presentedViewController) {
+        vc = vc.presentedViewController;
+    }
 
     [vc presentViewController:alert animated:YES completion:nil];
 
-    // Apply patch (ASLR-safe)
+    // Patch GetCurrency (ASLR-safe)
     uint64_t addr = GET_CURRENCY_OFFSET + _dyld_get_image_vmaddr_slide(0);
     if (enabled) {
         memcpy(original, (void*)addr, sizeof(original));
-        mprotect((void*)addr, 4096, PROT_READ|PROT_WRITE|PROT_EXEC);
+        mprotect((void*)addr, 4096, PROT_READ | PROT_WRITE | PROT_EXEC);
         memcpy((void*)addr, patch, sizeof(patch));
     } else {
-        mprotect((void*)addr, 4096, PROT_READ|PROT_WRITE|PROT_EXEC);
+        mprotect((void*)addr, 4096, PROT_READ | PROT_WRITE | PROT_EXEC);
         memcpy((void*)addr, original, sizeof(original));
     }
 }
 
 __attribute__((constructor))
 static void init() {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 4ULL*NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 4ULL * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         UIWindow *btn = [[UIWindow alloc] initWithFrame:CGRectMake(30, 120, 70, 70)];
         btn.backgroundColor = [UIColor.systemBlueColor colorWithAlphaComponent:0.85];
         btn.layer.cornerRadius = 35;
@@ -50,7 +55,6 @@ static void init() {
         l.textAlignment = NSTextAlignmentCenter;
         [btn addSubview:l];
 
-        // Correct SEL trick
         [btn addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:(__bridge id)(void*)handleTap
                                                                         action:@selector(invoke)]];
 
