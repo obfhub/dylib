@@ -1,38 +1,23 @@
-name: Build Unity Mono Patcher dylib
+name: Build Mod Menu
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:
+on: [push, workflow_dispatch]
 
 jobs:
   build:
-    runs-on: macos-latest
-
+    runs-on: macos-15
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - name: Build dylib with Xcode Toolchain
-        run: |
-          # Use xcrun to invoke clang++, which correctly handles the iOS SDK.
-          xcrun clang++ -isysroot $(xcrun --sdk iphoneos --show-sdk-path) \
-            -arch arm64 \
-            -dynamiclib \
-            -o UnityMonoPatcher.dylib \
-            UnityMonoPatcher.cpp \
-            -framework CoreFoundation
+    - name: Build dylib
+      run: |
+        clang -arch arm64 -arch arm64e \
+              -shared -fobjc-arc -fmodules \
+              -isysroot $(xcrun --sdk iphoneos --show-sdk-path) \
+              -F $(xcrun --sdk iphoneos --show-sdk-path)/System/Library/Frameworks \
+              -o SubwayModMenu.dylib modmenu.h -framework UIKit -framework Foundation
 
-      - name: Verify dylib Architecture
-        run: |
-          file UnityMonoPatcher.dylib
-          lipo -info UnityMonoPatcher.dylib
-
-      - name: Upload dylib Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: UnityMonoPatcher-arm64
-          path: UnityMonoPatcher.dylib
-          retention-days: 30
+    - name: Upload dylib
+      uses: actions/upload-artifact@v4
+      with:
+        name: SubwayModMenu.dylib
+        path: SubwayModMenu.dylib
