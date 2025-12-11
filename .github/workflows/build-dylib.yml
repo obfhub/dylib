@@ -4,7 +4,12 @@ on: [push, workflow_dispatch]
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-latest  # Auto macOS-15+; less queue contention
+    timeout-minutes: 30    # Auto-cancel if stuck >30 mins
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+
     steps:
     - uses: actions/checkout@v4
 
