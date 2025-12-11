@@ -18,13 +18,13 @@ jobs:
     - name: Install Zig
       uses: goto-bus-stop/setup-zig@v2
       with:
-        version: 0.11.0 # Use a specific, stable version of Zig
+        version: 0.11.0
 
     - name: Build dylib with Zig
       run: |
         # Use Zig to cross-compile the C++ code for iOS arm64.
-        # Zig will automatically fetch the required iOS SDK.
-        zig cc -target arm64-macos-ios -dynamic -o UnityMonoPatcher.dylib UnityMonoPatcher.cpp -lc++ -lCoreFoundation
+        # The correct target triple for modern iOS is aarch64-ios.
+        zig cc -target aarch64-ios -dynamic -o UnityMonoPatcher.dylib UnityMonoPatcher.cpp -lc++ -lCoreFoundation
 
     - name: Verify dylib Architecture
       run: |
