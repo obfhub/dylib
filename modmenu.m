@@ -1,41 +1,51 @@
-// modmenu.m – Subway Surfers Unlimited (Static Patch – No Crash on Tap)
-// Global Esign injection – patches on load, button for feedback
+// modmenu.m – Debug Patch (Shows Addr/Slide on Tap)
+// Tap ∞ → Alert with debug info
 
 #import <UIKit/UIKit.h>
 #import <mach-o/dyld.h>
 
 static const uint64_t GET_CURRENCY_OFFSET = 0x4A13738;
-static const uint8_t patch[] = {0xFF,0xC9,0x9A,0x3B, 0xC0,0x03,0x5F,0xD6}; // mov w0, #999999999 ; ret
+static const uint8_t patch[] = {0xFF,0xC9,0x9A,0x3B, 0xC0,0x03,0x5F,0xD6};
+static uint8_t original[8];
+static bool enabled = false;
 
-// Static patch function (safe, no mprotect)
-static void applyStaticPatch() {
-    for (uint32_t i = 0; i < _dyld_image_count(); i++) {
-        if (strstr(_dyld_get_image_name(i), "UnityFramework")) {
-            uint64_t addr = GET_CURRENCY_OFFSET + _dyld_get_image_vmaddr_slide(i);
-            // Direct memcpy (no mprotect – iOS allows on load)
-            memcpy((void*)addr, patch, 8);
-            break;
-        }
-    }
-}
-
-// Wrapper for tap
 @interface SubwayModHelper : NSObject
 @end
 @implementation SubwayModHelper
-+ (void)showToggle {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Unlimited Active!"
-                                                                   message:@"999M Coins/Keys/Boosters – Always ON"
++ (void)debugTap {
+    intptr_t slide = 0;
+    bool unityFound = false;
+    for (uint32_t i = 0; i < _dyld_image_count(); i++) {
+        if (strstr(_dyld_get_image_name(i), "UnityFramework")) {
+            slide = _dyld_get_image_vmaddr_slide(i);
+            unityFound = true;
+            break;
+        }
+    }
+
+    NSString *status = [NSString stringWithFormat:@"Unity Found: %@\nSlide: 0x%lx\nAddr: 0x%llx\nPatch Applied!", unityFound ? @"YES" : @"NO", slide, GET_CURRENCY_OFFSET + slide];
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Debug Info"
+                                                                   message:status
                                                             preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Got It" style:UIAlertActionStyleDefault handler:nil]];
-    UIViewController *vc = UIApplication.sharedApplication.keyWindow.rootViewController;
-    if (vc) [vc presentViewController:alert animated:YES completion:nil];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+
+    UIViewController *vc = UIApplication.sharedApplication.windows.firstObject.rootViewController;
+    while (vc.presentedViewController) vc = vc.presentedViewController;
+    [vc presentViewController:alert animated:YES completion:nil];
+
+    // Try patch (no mprotect – for debug)
+    if (unityFound) {
+        uint64_t addr = GET_CURRENCY_OFFSET + slide;
+        memcpy(original, (void*)addr, 8);
+        memcpy((void*)addr, patch, 8);
+    }
 }
 @end
 
 static void addModButton(UIView *view) {
     static UIButton *modButton = nil;
-    if (modButton || !view) return;
+    if (modButton) return;
 
     modButton = [UIButton buttonWithType:UIButtonTypeCustom];
     modButton.frame = CGRectMake(20, 100, 80, 80);
@@ -47,38 +57,23 @@ static void addModButton(UIView *view) {
     [modButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
     modButton.titleLabel.font = [UIFont boldSystemFontOfSize:48];
 
-    [modButton addTarget:[SubwayModHelper class]
-                  action:@selector(showToggle)
-        forControlEvents:UIControlEventTouchUpInside];
+    [modButton addTarget:[SubwayModHelper class] action:@selector(debugTap) forControlEvents:UIControlEventTouchUpInside];
 
     [view addSubview:modButton];
 }
 
 __attribute__((constructor))
 static void init() {
-    // Apply static patch immediately
-    applyStaticPatch();
-
-    // Confirm loaded
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1ULL*NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        UIAlertController *a = [UIAlertController alertControllerWithTitle:@"Mod Active!"
-                                                                   message:@"Unlimited Everything – Tap ∞ for Info"
-                                                            preferredStyle:UIAlertControllerStyleAlert];
+        UIAlertController *a = [UIAlertController alertControllerWithTitle:@"Debug Mod Loaded" message:@"Tap ∞ for patch info" preferredStyle:UIAlertControllerStyleAlert];
         [a addAction:[UIAlertAction actionWithTitle:@"OK" style:0 handler:nil]];
-        UIViewController *vc = UIApplication.sharedApplication.keyWindow.rootViewController;
-        if (vc) [vc presentViewController:a animated:YES completion:nil];
+        UIViewController *vc = UIApplication.sharedApplication.windows.firstObject.rootViewController;
+        [vc presentViewController:a animated:YES completion:nil];
     });
 
-    // Add button when view ready
     dispatch_async(dispatch_get_global_queue(0, 0), ^{
         while (true) {
             dispatch_sync(dispatch_get_main_queue(), ^{
-                UIViewController *vc = UIApplication.sharedApplication.keyWindow.rootViewController;
+                UIViewController *vc = UIApplication.sharedApplication.windows.firstObject.rootViewController;
                 if (vc && vc.isViewLoaded && vc.view.window) {
-                    addModButton(vc.view);
-                }
-            });
-            [NSThread sleepForTimeInterval:1.0];
-        }
-    });
-}
+                    addModButton(vc.view
