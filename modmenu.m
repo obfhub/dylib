@@ -1,14 +1,14 @@
-// modmenu.h — Single-file Subway Surfers Unlimited Coins Mod Menu
-// Drop this file in a repo + the workflow below → GitHub builds the .dylib automatically
-// Works on iOS 15–18.2 non-jailbroken (Esign/Sideloadly injection)
+// modmenu.m — Single-file Subway Surfers Unlimited Coins Mod Menu (ObjC source)
+// Drop in repo + YAML below → Builds fat arm64/arm64e dylib on GitHub Actions
+// Inject with Esign/optool on non-JB iOS 15–18.2
 
-#include <objc/runtime.h>
-#include <mach-o/dyld.h>
-#include <dlfcn.h>
-#include <UIKit/UIKit.h>
+#import <objc/runtime.h>
+#import <mach-o/dyld.h>
+#import <dlfcn.h>
+#import <UIKit/UIKit.h>
 
-// ==== CONFIG (only thing you ever change) ====
-static const uint64_t GET_CURRENCY_OFFSET = 0x4A13738;          // ← your offset
+// ==== CONFIG (change offset/value here) ====
+static const uint64_t GET_CURRENCY_OFFSET = 0x4A13738;          // Your GetCurrency RVA
 static const uint8_t patch[]   = {0xFF,0xC9,0x9A,0x3B, 0xC0,0x03,0x5F,0xD6}; // mov w0, #999999999 ; ret
 static uint8_t original[8];
 static bool enabled = false;
@@ -29,15 +29,16 @@ static void init() {
         lbl.textAlignment = NSTextAlignmentCenter;
         [btn addSubview:lbl];
 
-        [btn addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:^(id self){
+        UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:nil action:^(id _Nonnull sender) {
             enabled = !enabled;
             UIAlertController *a = [UIAlertController alertControllerWithTitle:@"Subway Mod"
                                         message:enabled?@"UNLIMITED ON":@"Unlimited OFF"
                                         preferredStyle:UIAlertControllerStyleAlert];
-            [a addAction:[UIAlertAction actionWithTitle:@"OK" style:0 handler:nil]];
+            [a addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
             [[UIApplication sharedApplication].keyWindow.rootViewController presentViewController:a animated:YES completion:nil];
 
-            uint64_t addr = GET_CURRENCY_OFFSET + _dyld_get_image_vmaddr_slide(0);  // ASLR fix
+            // ASLR-safe address (slide + offset)
+            uint64_t addr = GET_CURRENCY_OFFSET + _dyld_get_image_vmaddr_slide(0);
             if (enabled) {
                 memcpy(original, (void*)addr, 8);
                 mprotect((void*)addr, 8, PROT_READ|PROT_WRITE|PROT_EXEC);
@@ -46,7 +47,8 @@ static void init() {
                 mprotect((void*)addr, 8, PROT_READ|PROT_WRITE|PROT_EXEC);
                 memcpy((void*)addr, original, 8);
             }
-        } action:@selector(invoke:)]];
+        }];
+        [btn addGestureRecognizer:tap];
 
         [btn makeKeyAndVisible];
     });
