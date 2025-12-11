@@ -5,7 +5,7 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch: # Allows you to run this workflow manually
+  workflow_dispatch:
 
 jobs:
   build:
@@ -15,24 +15,23 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Build dylib with osxcross Docker Image
+    - name: Install Zig
+      uses: goto-bus-stop/setup-zig@v2
+      with:
+        version: 0.11.0 # Use a specific, stable version of Zig
+
+    - name: Build dylib with Zig
       run: |
-        # Use the public osxcross Docker image for cross-compilation.
-        # Mount the current directory into /project inside the container.
-        docker run --rm -v "$(pwd)":/project \
-          nicograssetto/osxcross:latest \
-          /bin/bash -c "
-            cd /project && \
-            o64-clang++ -dynamiclib \
-            -arch arm64 \
-            -miphoneos-version-min=13.0 \
-            -isysroot /osxcross/target/SDK/iPhoneOS.sdk \
-            -o UnityMonoPatcher.dylib \
-            UnityMonoPatcher.cpp \
-            -framework CoreFoundation \
-            -lc++ && \
-            echo 'Dylib compilation successful.'
-          "
+        # Use Zig to cross-compile the C++ code for iOS arm64.
+        # Zig will automatically fetch the required iOS SDK.
+        zig cc -target arm64-macos-ios -dynamic -o UnityMonoPatcher.dylib UnityMonoPatcher.cpp -lc++ -lCoreFoundation
+
+    - name: Verify dylib Architecture
+      run: |
+        # Install lipo to check the architecture of the built file
+        sudo apt-get update && sudo apt-get install -y lipo
+        file UnityMonoPatcher.dylib
+        lipo -info UnityMonoPatcher.dylib
 
     - name: Upload dylib Artifact
       uses: actions/upload-artifact@v4
