@@ -4,51 +4,28 @@ on: [push, workflow_dispatch]
 
 jobs:
   build:
-    runs-on: macos-latest  # Auto macOS-15+ (no queue issues)
-    timeout-minutes: 10
-    concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}
-      cancel-in-progress: true
-
+    runs-on: macos-latest
     steps:
     - uses: actions/checkout@v4
 
-    - name: Build Fat Dylib (arm64 + arm64e)
+    - name: Build Fat Dylib
       run: |
-        # iOS SDK path
         SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-        CC=$(xcrun --sdk iphoneos --find clang)
-        
-        # Compile arm64
-        $CC -arch arm64 \
-            -shared -fobjc-arc -fmodules \
-            -isysroot "$SDK" \
-            -F "$SDK/System/Library/Frameworks" \
-            -miphoneos-version-min=13.0 \
-            -dynamiclib -install_name @rpath/SubwayModMenu.dylib \
-            -o SubwayModMenu_arm64.dylib modmenu.m \
-            -framework UIKit -framework Foundation
-        
-        # Compile arm64e
-        $CC -arch arm64e \
-            -shared -fobjc-arc -fmodules \
-            -isysroot "$SDK" \
-            -F "$SDK/System/Library/Frameworks" \
-            -miphoneos-version-min=13.0 \
-            -dynamiclib -install_name @rpath/SubwayModMenu.dylib \
-            -o SubwayModMenu_arm64e.dylib modmenu.m \
-            -framework UIKit -framework Foundation
-        
-        # Lipos to fat binary
+        clang -arch arm64 -arch arm64e \
+              -shared -fobjc-arc \
+              -isysroot "$SDK" \
+              -miphoneos-version-min=13.0 \
+              -o SubwayModMenu_arm64.dylib   modmenu.m -framework UIKit
+        clang -arch arm64 -arch arm64e \
+              -shared -fobjc-arc \
+              -isysroot "$SDK" \
+              -miphoneos-version-min=13.0 \
+              -o SubwayModMenu_arm64e.dylib  modmenu.m -framework UIKit
         lipo -create -output SubwayModMenu.dylib SubwayModMenu_arm64.dylib SubwayModMenu_arm64e.dylib
-        
-        # Verify
-        file SubwayModMenu.dylib
         lipo -info SubwayModMenu.dylib
 
-    - name: Upload Fat Dylib
+    - name: Upload
       uses: actions/upload-artifact@v4
       with:
         name: SubwayModMenu.dylib
         path: SubwayModMenu.dylib
-        retention-days: 30
