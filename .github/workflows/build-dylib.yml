@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest # Switch to a macOS runner to easily get the SDK
 
     steps:
     - name: Checkout Repository
@@ -22,14 +22,19 @@ jobs:
 
     - name: Build dylib with Zig
       run: |
-        # Use Zig to cross-compile the C++ code for iOS arm64.
-        # The correct target triple for modern iOS is aarch64-ios.
-        zig cc -target aarch64-ios -dynamic -o UnityMonoPatcher.dylib UnityMonoPatcher.cpp -lc++ -lCoreFoundation
+        # Find the path to the latest iPhoneOS SDK on the macOS runner
+        SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+        echo "Using SDK path: $SDK_PATH"
+
+        # Use Zig to cross-compile, providing the SDK path for frameworks
+        zig cc -target aarch64-ios -dynamic \
+          -isysroot "$SDK_PATH" \
+          -o UnityMonoPatcher.dylib \
+          UnityMonoPatcher.cpp \
+          -lc++ -lCoreFoundation
 
     - name: Verify dylib Architecture
       run: |
-        # Install lipo to check the architecture of the built file
-        sudo apt-get update && sudo apt-get install -y lipo
         file UnityMonoPatcher.dylib
         lipo -info UnityMonoPatcher.dylib
 
