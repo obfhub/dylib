@@ -1,5 +1,5 @@
-// modmenu.m – Unlimited Subway Surfers (Global Esign Injection, Button Always Visible)
-// Inject normally into main app – finds UnityFramework automatically
+// modmenu.m – Subway Surfers Unlimited (Fixed 10-Sec Crash, Global Esign)
+// Delays button to 20 sec after Unity loads – inject normally
 
 #import <UIKit/UIKit.h>
 #import <mach-o/dyld.h>
@@ -47,41 +47,53 @@ static void toggleUnlimited() {
 
 __attribute__((constructor))
 static void init() {
-    // Confirm load with alert (appears in ~1 sec)
+    // Confirm load (1 sec)
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1ULL * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         UIAlertController *loadAlert = [UIAlertController alertControllerWithTitle:@"Mod Loaded!"
-                                                                            message:@"∞ Button in 10 sec"
+                                                                            message:@"∞ Button in 20 sec (Unity init)"
                                                                      preferredStyle:UIAlertControllerStyleAlert];
         [loadAlert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
         UIViewController *vc = UIApplication.sharedApplication.windows.firstObject.rootViewController;
         [vc presentViewController:loadAlert animated:YES completion:nil];
     });
 
-    // Floating button (10 sec delay for Unity load)
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10ULL * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        UIWindow *window = [[UIWindow alloc] initWithFrame:CGRectMake(20, 100, 80, 80)];
-        window.backgroundColor = [UIColor colorWithRed:0 green:0.5 blue:1 alpha:0.95];
-        window.layer.cornerRadius = 40;
-        window.layer.borderWidth = 3;
-        window.layer.borderColor = [UIColor whiteColor].CGColor;
-        window.layer.shadowColor = [UIColor blackColor].CGColor;
-        window.layer.shadowOpacity = 0.8;
-        window.layer.shadowRadius = 10;
-        window.layer.shadowOffset = CGSizeMake(0, 5);
-        window.windowLevel = UIWindowLevelAlert + 1000;  // Forces on top
-
-        UILabel *label = [[UILabel alloc] initWithFrame:window.bounds];
-        label.text = @"∞";
-        label.font = [UIFont systemFontOfSize:50 weight:UIFontWeightHeavy];
-        label.textColor = [UIColor whiteColor];
-        label.textAlignment = NSTextAlignmentCenter;
-        [window addSubview:label];
-
-        UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
-        button.frame = window.bounds;
-        [button addTarget:(__bridge id _Nonnull)(void*)toggleUnlimited action:@selector(toggleUnlimited) forControlEvents:UIControlEventTouchUpInside];
-        [window addSubview:button];
-
-        [window makeKeyAndVisible];
+    // Button creation – 20 sec delay (after Unity render loop starts)
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 20ULL * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        // Safe check: Ensure Unity loaded before creating window
+        if (getUnitySlide() == 0) {
+            // Retry once more in 5 sec if not ready
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5ULL * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                createButton();
+            });
+            return;
+        }
+        createButton();
     });
+}
+
+static void createButton() {
+    UIWindow *window = [[UIWindow alloc] initWithFrame:CGRectMake(20, 100, 80, 80)];
+    window.backgroundColor = [UIColor colorWithRed:0 green:0.5 blue:1 alpha:0.95];
+    window.layer.cornerRadius = 40;
+    window.layer.borderWidth = 3;
+    window.layer.borderColor = [UIColor whiteColor].CGColor;
+    window.layer.shadowColor = [UIColor blackColor].CGColor;
+    window.layer.shadowOpacity = 0.8;
+    window.layer.shadowRadius = 10;
+    window.layer.shadowOffset = CGSizeMake(0, 5);
+    window.windowLevel = UIWindowLevelAlert + 1000;  // On top of Unity canvas
+
+    UILabel *label = [[UILabel alloc] initWithFrame:window.bounds];
+    label.text = @"∞";
+    label.font = [UIFont systemFontOfSize:50 weight:UIFontWeightHeavy];
+    label.textColor = [UIColor whiteColor];
+    label.textAlignment = NSTextAlignmentCenter;
+    [window addSubview:label];
+
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
+    button.frame = window.bounds;
+    [button addTarget:(__bridge id _Nonnull)(void*)toggleUnlimited action:@selector(toggleUnlimited) forControlEvents:UIControlEventTouchUpInside];
+    [window addSubview:button];
+
+    [window makeKeyAndVisible];
 }
