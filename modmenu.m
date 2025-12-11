@@ -1,9 +1,10 @@
-// modmenu.m – Unlimited Everything toggle for Subway Surfers (non-jailbroken)
-// Works on iOS 13 → 18.2, floating menu
+// modmenu.m – Unlimited Everything toggle for Subway Surfers
+// Works on iOS 13 → 18.2 non-jailbroken – floating ∞ button
+
 #import <UIKit/UIKit.h>
 #import <mach-o/dyld.h>
 
-static const uint64_t GET_CURRENCY_OFFSET = 0x4A13738;               // your offset
+static const uint64_t GET_CURRENCY_OFFSET = 0x4A13738;
 static const uint8_t patch[] = {0xFF,0xC9,0x9A,0x3B, 0xC0,0x03,0x5F,0xD6}; // 999999999
 static uint8_t original[8];
 static bool enabled = false;
@@ -11,14 +12,18 @@ static bool enabled = false;
 static void handleTap() {
     enabled = !enabled;
 
-    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"Subway Surfers"
-                             message:enabled ? @"UNLIMITED ON" : @"Unlimited OFF"
-                      preferredStyle:UIAlertControllerStyleAlert];
-    [a addAction:[UIAlertAction actionWithTitle:@"OK" style:0 handler:nil]];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Subway Surfers"
+                                                                   message:enabled ? @"UNLIMITED ON" : @"Unlimited OFF"
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil];
 
-    UIWindow *w = UIApplication.sharedApplication.windows.firstObject;
-    [w.rootViewController ?: w presentViewController:a animated:YES completion:nil];
+    // Proper way to get the current view controller in 2025
+    UIViewController *vc = UIApplication.sharedApplication.windows.firstObject.rootViewController;
+    while (vc.presentedViewController) vc = vc.presentedViewController;
 
+    [vc presentViewController:alert animated:YES completion:nil];
+
+    // Apply patch (ASLR-safe)
     uint64_t addr = GET_CURRENCY_OFFSET + _dyld_get_image_vmaddr_slide(0);
     if (enabled) {
         memcpy(original, (void*)addr, sizeof(original));
@@ -39,13 +44,16 @@ static void init() {
         btn.windowLevel = 999999;
 
         UILabel *l = [[UILabel alloc] initWithFrame:btn.bounds];
-        l.text = @"∞"; l.textAlignment = NSTextAlignmentCenter;
+        l.text = @"∞";
         l.font = [UIFont boldSystemFontOfSize:40];
         l.textColor = UIColor.whiteColor;
+        l.textAlignment = NSTextAlignmentCenter;
         [btn addSubview:l];
 
+        // Correct SEL trick
         [btn addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:(__bridge id)(void*)handleTap
                                                                         action:@selector(invoke)]];
+
         [btn makeKeyAndVisible];
     });
 }
