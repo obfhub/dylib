@@ -1,11 +1,11 @@
-name: Build Unity Mono Patcher
+name: Build Unity Mono Patcher dylib
 
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch: # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch: # Allows you to run this workflow manually
 
 jobs:
   build:
@@ -15,21 +15,18 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
     - name: Build dylib with osxcross Docker Image
       run: |
-        # This Docker image contains the osxcross toolchain for cross-compiling to iOS.
-        # We mount the current directory into /project inside the container.
+        # Use the public osxcross Docker image for cross-compilation.
+        # Mount the current directory into /project inside the container.
         docker run --rm -v "$(pwd)":/project \
-          ghcr.io/osxcross/osxcross:latest \
+          nicograssetto/osxcross:latest \
           /bin/bash -c "
             cd /project && \
             o64-clang++ -dynamiclib \
             -arch arm64 \
             -miphoneos-version-min=13.0 \
-            -isysroot /osxcross/target/SDK/iPhoneOS16.5.sdk \
+            -isysroot /osxcross/target/SDK/iPhoneOS.sdk \
             -o UnityMonoPatcher.dylib \
             UnityMonoPatcher.cpp \
             -framework CoreFoundation \
@@ -37,44 +34,9 @@ jobs:
             echo 'Dylib compilation successful.'
           "
 
-    - name: Verify dylib Architecture
-      run: |
-        # Install lipo to check the architecture of the built file
-        sudo apt-get update && sudo apt-get install -y lipo
-        file UnityMonoPatcher.dylib
-        lipo -info UnityMonoPatcher.dylib
-
-    - name: Create .deb Package
-      run: |
-        # Create the directory structure for the .deb package
-        mkdir -p payload/Library/MobileSubstrate/DynamicLibraries
-        
-        # Copy the compiled dylib to the correct location
-        # The name should match the bundle identifier for easy loading by tools like Substrate
-        cp UnityMonoPatcher.dylib payload/Library/MobileSubstrate/DynamicLibraries/com.aimassist.patcher.dylib
-        
-        # Create the control file for the package
-        mkdir -p payload/DEBIAN
-        cat > payload/DEBIAN/control << EOF
-        Package: com.aimassist.patcher
-        Name: Aim Assist Patcher
-        Version: 1.0.0
-        Architecture: iphoneos-arm
-        Description: Modifies the AimAssistAmount in Unity games.
-        Maintainer: Your Name <you@example.com>
-        Author: Your Name
-        Depends: firmware (>= 13.0), mobilesubstrate
-        Section: Tweaks
-        EOF
-        
-        # Build the .deb package
-        dpkg-deb -Z gzip -b payload AimAssistPatcher.deb
-
-    - name: Upload Build Artifacts
+    - name: Upload dylib Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: aim-assist-patcher
-        path: |
-          UnityMonoPatcher.dylib
-          AimAssistPatcher.deb
+        name: UnityMonoPatcher-arm64
+        path: UnityMonoPatcher.dylib
         retention-days: 30
