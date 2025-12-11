@@ -1,30 +1,31 @@
-// modmenu.m – Subway Surfers Unlimited (Unity View Hook, No Crash)
-// Adds button to game view directly – global Esign injection
+// modmenu.m – Subway Surfers Unlimited Everything (Global Esign – No Crash, Button Appears)
 
 #import <UIKit/UIKit.h>
 #import <mach-o/dyld.h>
 
 static const uint64_t GET_CURRENCY_OFFSET = 0x4A13738;
-static const uint8_t patch[] = {0xFF, 0xC9, 0x9A, 0x3B, 0xC0, 0x03, 0x5F, 0xD6}; // 999999999
+static const uint8_t patch[] = {0xFF,0xC9,0x9A,0x3B, 0xC0,0x03,0x5F,0xD6}; // 999999999
 static uint8_t original[8];
 static bool enabled = false;
 static UIButton *modButton = nil;
 
-// Dynamic UnityFramework slide finder
+// Find UnityFramework slide
 static intptr_t getUnitySlide() {
     for (uint32_t i = 0; i < _dyld_image_count(); i++) {
-        if (strstr(_dyld_get_image_name(i), "UnityFramework")) {
+        const char *name = _dyld_get_image_name(i);
+        if (name && strstr(name, "UnityFramework")) {
             return _dyld_get_image_vmaddr_slide(i);
         }
     }
     return 0;
 }
 
-static void toggleUnlimited(id sender) {
+// Toggle function
+static void toggleUnlimited() {
     enabled = !enabled;
 
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Subway Mod"
-                                                                   message:enabled ? @"UNLIMITED ON (999M Coins/Keys)" : @"Unlimited OFF"
+                                                                   message:enabled ? @"UNLIMITED ON" : @"Unlimited OFF"
                                                             preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
 
@@ -37,54 +38,57 @@ static void toggleUnlimited(id sender) {
         uint64_t addr = GET_CURRENCY_OFFSET + slide;
         if (enabled) {
             memcpy(original, (void*)addr, 8);
-            mprotect((void*)addr, 4096, PROT_READ | PROT_WRITE | PROT_EXEC);
+            mprotect((void*)addr, 4096, PROT_READ|PROT_WRITE|PROT_EXEC);
             memcpy((void*)addr, patch, 8);
         } else {
-            mprotect((void*)addr, 4096, PROT_READ | PROT_WRITE | PROT_EXEC);
+            mprotect((void*)addr, 4096, PROT_READ|PROT_WRITE|PROT_EXEC);
             memcpy((void*)addr, original, 8);
         }
     }
 }
 
-static void addModButton(UIView *gameView) {
-    if (modButton) return; // Already added
+// Add button to Unity's view
+static void addModButtonToView(UIView *view) {
+    if (modButton || !view) return;
 
     modButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    modButton.frame = CGRectMake(20, 100, 60, 60);
-    modButton.backgroundColor = [UIColor.systemBlueColor colorWithAlphaComponent:0.9];
-    modButton.layer.cornerRadius = 30;
-    modButton.layer.borderWidth = 2;
-    modButton.layer.borderColor = [UIColor whiteColor].CGColor;
-    modButton.titleLabel.font = [UIFont boldSystemFontOfSize:30];
+    modButton.frame = CGRectMake(20, 100, 70, 70);
+    modButton.backgroundColor = [UIColor colorWithRed:0 green:0.5 blue:1 alpha:0.95];
+    modButton.layer.cornerRadius = 35;
+    modButton.layer.borderWidth = 3;
+    modButton.layer.borderColor = UIColor.whiteColor.CGColor;
     [modButton setTitle:@"∞" forState:UIControlStateNormal];
     [modButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    [modButton addTarget:@(toggleUnlimited) action:@selector(toggleUnlimited:) forControlEvents:UIControlEventTouchUpInside];
+    modButton.titleLabel.font = [UIFont boldSystemFontOfSize:42];
 
-    [gameView addSubview:modButton];
+    // Correct way to add target (no boxing error)
+    [modButton addTarget:nil action:@selector(toggleUnlimited) forControlEvents:UIControlEventTouchUpInside];
+
+    [view addSubview:modButton];
 }
 
 __attribute__((constructor))
 static void init() {
-    // Confirm load (1 sec)
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1ULL * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        UIAlertController *loadAlert = [UIAlertController alertControllerWithTitle:@"Mod Loaded!"
-                                                                            message:@"Button appears soon"
-                                                                     preferredStyle:UIAlertControllerStyleAlert];
-        [loadAlert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    // Confirm dylib loaded
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1ULL*NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        UIAlertController *a = [UIAlertController alertControllerWithTitle:@"Mod Loaded!"
+                                                                   message:@"Button appears in a few seconds"
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+        [a addAction:[UIAlertAction actionWithTitle:@"OK" style:0 handler:nil]];
         UIViewController *vc = UIApplication.sharedApplication.windows.firstObject.rootViewController;
-        [vc presentViewController:loadAlert animated:YES completion:nil];
+        [vc presentViewController:a animated:YES completion:nil];
     });
 
-    // Poll for Unity view in background thread (no main queue block)
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    // Poll every second until Unity view is ready
+    dispatch_async(dispatch_get_global_queue(0, 0), ^{
         while (true) {
-            dispatch_async(dispatch_get_main_queue(), ^{
+            dispatch_sync(dispatch_get_main_queue(), ^{
                 UIViewController *vc = UIApplication.sharedApplication.windows.firstObject.rootViewController;
-                if (vc && vc.view && getUnitySlide() != 0 && ![vc.view.subviews containsObject:modButton]) {
-                    addModButton(vc.view);  // Add to game view
+                if (vc && vc.isViewLoaded && vc.view.window && getUnitySlide() != 0) {
+                    addModButtonToView(vc.view);
                 }
             });
-            [NSThread sleepForTimeInterval:1.0];  // Check every 1 sec
+            [NSThread sleepForTimeInterval:1.0];
         }
     });
 }
