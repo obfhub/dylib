@@ -9,27 +9,24 @@ on:
 
 jobs:
   build:
-    # Use a macOS runner which has the iOS SDK and toolchain
     runs-on: macos-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Zig
-        uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: 0.11.0
-
-      - name: Build dylib with Zig
+      - name: Build dylib with Xcode Toolchain
         run: |
-          # On macOS, Zig can find the iOS SDK automatically.
-          # We use clang++ for C++ and link the required frameworks.
-          zig cc -target aarch64-ios -dynamic -o UnityMonoPatcher.dylib UnityMonoPatcher.cpp -lc++ -framework CoreFoundation
+          # Use xcrun to invoke clang++, which correctly handles the iOS SDK.
+          xcrun clang++ -isysroot $(xcrun --sdk iphoneos --show-sdk-path) \
+            -arch arm64 \
+            -dynamiclib \
+            -o UnityMonoPatcher.dylib \
+            UnityMonoPatcher.cpp \
+            -framework CoreFoundation
 
       - name: Verify dylib Architecture
         run: |
-          # 'file' and 'lipo' are pre-installed on macOS.
           file UnityMonoPatcher.dylib
           lipo -info UnityMonoPatcher.dylib
 
