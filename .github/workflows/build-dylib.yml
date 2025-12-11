@@ -4,11 +4,11 @@ on: [push, workflow_dispatch]
 
 jobs:
   build:
-    runs-on: macos-latest               # macOS 15, no queue problems
+    runs-on: macos-latest
     steps:
     - uses: actions/checkout@v4
 
-    - name: Build universal arm64 dylib (arm64e is dead on iOS 18+)
+    - name: Build arm64 dylib
       run: |
         SDK=$(xcrun --sdk iphoneos --show-sdk-path)
         clang -arch arm64 \
@@ -18,11 +18,9 @@ jobs:
               -o SubwayModMenu.dylib modmenu.m \
               -framework UIKit -framework Foundation
 
-        # Verify
         file SubwayModMenu.dylib
-        otool -L SubwayModMenu.dylib
 
-    - name: Upload dylib
+    - name: Upload
       uses: actions/upload-artifact@v4
       with:
         name: SubwayModMenu.dylib
