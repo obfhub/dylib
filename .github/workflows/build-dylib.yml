@@ -9,38 +9,33 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest # Switch to a macOS runner to easily get the SDK
+    # Use a macOS runner which has the iOS SDK and toolchain
+    runs-on: macos-latest
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-    - name: Install Zig
-      uses: goto-bus-stop/setup-zig@v2
-      with:
-        version: 0.11.0
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.11.0
 
-    - name: Build dylib with Zig
-      run: |
-        # Find the path to the latest iPhoneOS SDK on the macOS runner
-        SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
-        echo "Using SDK path: $SDK_PATH"
+      - name: Build dylib with Zig
+        run: |
+          # On macOS, Zig can find the iOS SDK automatically.
+          # We use clang++ for C++ and link the required frameworks.
+          zig cc -target aarch64-ios -dynamic -o UnityMonoPatcher.dylib UnityMonoPatcher.cpp -lc++ -framework CoreFoundation
 
-        # Use Zig to cross-compile, providing the SDK path for frameworks
-        zig cc -target aarch64-ios -dynamic \
-          -isysroot "$SDK_PATH" \
-          -o UnityMonoPatcher.dylib \
-          UnityMonoPatcher.cpp \
-          -lc++ -lCoreFoundation
+      - name: Verify dylib Architecture
+        run: |
+          # 'file' and 'lipo' are pre-installed on macOS.
+          file UnityMonoPatcher.dylib
+          lipo -info UnityMonoPatcher.dylib
 
-    - name: Verify dylib Architecture
-      run: |
-        file UnityMonoPatcher.dylib
-        lipo -info UnityMonoPatcher.dylib
-
-    - name: Upload dylib Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: UnityMonoPatcher-arm64
-        path: UnityMonoPatcher.dylib
-        retention-days: 30
+      - name: Upload dylib Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: UnityMonoPatcher-arm64
+          path: UnityMonoPatcher.dylib
+          retention-days: 30
