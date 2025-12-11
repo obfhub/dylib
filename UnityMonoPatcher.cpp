@@ -14,13 +14,13 @@ typedef void* MonoString;
 
 // Function pointers to the Mono API functions we will retrieve dynamically.
 typedef MonoDomain* (*mono_get_root_domain_t)(void);
-typedef void* (*mono_domain_get_t)(void);
-typedef MonoAssembly* (*mono_domain_assembly_open_t)(MonoDomain* domain, const char* assemblyName);
+typedef MonoDomain (*mono_domain_get_t)(void);
+typedef MonoAssembly* (*mono_domain_assembly_open_t)(MonoDomain domain, const char* assemblyName);
 typedef MonoImage* (*mono_assembly_get_image_t)(MonoAssembly* assembly);
 typedef MonoClass* (*mono_class_from_name_t)(MonoImage* image, const char* name_space, const char* name);
 typedef MonoMethod* (*mono_class_get_method_from_name_t)(MonoClass* klass, const char* name, int param_count);
 typedef MonoObject* (*mono_runtime_invoke_t)(MonoMethod* method, void* obj, void** params, MonoObject** exc);
-typedef MonoString* (*mono_string_new_t)(MonoDomain* domain, const char* text);
+typedef MonoString* (*mono_string_new_t)(MonoDomain domain, const char* text);
 
 // Global function pointers
 static mono_get_root_domain_t mono_get_root_domain = NULL;
@@ -52,7 +52,8 @@ bool load_mono_functions() {
     mono_runtime_invoke = (mono_runtime_invoke_t)dlsym(handle, "mono_runtime_invoke");
     mono_string_new = (mono_string_new_t)dlsym(handle, "mono_string_new");
 
-    if (!mono_get_root_domain || !mono_domain_get || !mono_domain_assembly_open || !mono_assembly_get_image || !mono_class_from_name || !mono_class_get_method_from_name || !mono_runtime_invoke) {
+    // Check that all functions were loaded successfully
+    if (!mono_get_root_domain || !mono_domain_get || !mono_domain_assembly_open || !mono_assembly_get_image || !mono_class_from_name || !mono_class_get_method_from_name || !mono_runtime_invoke || !mono_string_new) {
         printf("[UnityMonoPatcher] Failed to load one or more Mono functions.\n");
         return false;
     }
@@ -61,10 +62,8 @@ bool load_mono_functions() {
     return true;
 }
 
-
 // The main constructor function that runs on library load.
-__attribute__((constructor))
-void patch_unity_game() {
+__attribute__((constructor)) void patch_unity_game() {
     printf("[UnityMonoPatcher] Initializing...\n");
 
     if (!load_mono_functions()) {
@@ -72,7 +71,8 @@ void patch_unity_game() {
     }
 
     // Get the active Mono domain
-    MonoDomain* domain = mono_domain_get();
+    // CORRECTED: Changed from 'MonoDomain*' to 'MonoDomain' to fix the type mismatch.
+    MonoDomain domain = mono_domain_get();
     if (!domain) {
         printf("[UnityMonoPatcher] Failed to get Mono domain.\n");
         return;
@@ -98,6 +98,7 @@ void patch_unity_game() {
         printf("[UnityMonoPatcher] Failed to find class 'GameConfig'.\n");
         return;
     }
+
     printf("[UnityMonoPatcher] Found class 'GameConfig'.\n");
 
     // Find the "set_AimAssistAmount" method. The 'set_' prefix is how .NET compilers name property setters.
@@ -106,6 +107,7 @@ void patch_unity_game() {
         printf("[UnityMonoPatcher] Failed to find 'set_AimAssistAmount' method.\n");
         return;
     }
+
     printf("[UnityMonoPatcher] Found 'set_AimAssistAmount' method.\n");
 
     // Prepare the argument to pass to the setter method.
