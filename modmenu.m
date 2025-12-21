@@ -1,57 +1,46 @@
-// modmenu.m – Subway Surfers Unlimited – WORKS 100% with your RVA 0x4A13738
-// Global Esign injection – patches BEFORE Unity locks memory
+#include <substrate.h>
+#include <UIKit/UIKit.h>
+#include <cstdint>
+#include <cstdio>
 
-#import <UIKit/UIKit.h>
-#import <mach-o/dyld.h>
+// --- Offsets (update if needed) ---
+constexpr uintptr_t JUMP_HEIGHT_OFFSET = 0x4C; // JumpHeight in CharacterMotorConfig
 
-static const uint64_t GET_CURRENCY_RVA = 0x4A13738;  // ← YOUR CORRECT OFFSET
-static const uint8_t patch[] = {0xFF, 0xC9, 0x9A, 0x3B, 0xC0, 0x03, 0x5F, 0xD6}; // 999999999
+// --- Global player pointer ---
+void* g_PlayerPtr = nullptr; // Set this to your CharacterMotorConfig object pointer
 
-// This callback runs the SECOND UnityFramework is loaded (perfect timing!)
-static void __attribute__((constructor)) unityLoadedCallback() {
-    uint64_t unityBase = 0;
-    for (uint32_t i = 0; i < _dyld_image_count(); i++) {
-        const char* name = _dyld_get_image_name(i);
-        if (strstr(name, "UnityFramework")) {
-            unityBase = _dyld_get_image_vmaddr_slide(i);
-            break;
-        }
-    }
-    if (unityBase == 0) return;
-
-    uint64_t target = unityBase + GET_CURRENCY_RVA;
-    // Patch BEFORE Unity sets final memory protection
-    memcpy((void*)target, patch, sizeof(patch));
+// --- Patch function ---
+void PatchJumpHeight(void* player) {
+    if (!player) return;
+    float* jumpHeightPtr = (float*)((uintptr_t)player + JUMP_HEIGHT_OFFSET);
+    *jumpHeightPtr = 30.0f;
 }
 
-// Button just for feedback
-@interface ModHelper : NSObject @end
-@implementation ModHelper
-+ (void)show {
-    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"Unlimited ON"
-                                                               message:@"999,999,999 Coins/Keys/Boosters/Tickets\nEnjoy!"
-                                                        preferredStyle:1];
-    [a addAction:[UIAlertAction actionWithTitle:@"Close" style:0 handler:nil]];
-    [[UIApplication sharedApplication].windows.firstObject.rootViewController presentViewController:a animated:YES completion:nil];
-}
-@end
+// --- Optional: Hooked Unity Update loop ---
+typedef void (*UnityUpdate_t)();
+UnityUpdate_t orig_UnityUpdate = nullptr;
 
-static void addButton() {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 4 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-     UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
-     b.frame = CGRectMake(20, 100, 80, 80);
-     b.backgroundColor = [UIColor systemBlueColor];
-     b.layer.cornerRadius = 40;
-     b.layer.borderWidth = 4;
-     b.layer.borderColor = UIColor.whiteColor.CGColor;
-     [b setTitle:@"∞" forState:UIControlStateNormal];
-     b.titleLabel.font = [UIFont boldSystemFontOfSize:48];
-     [b addTarget:[ModHelper class] action:@selector(show) forControlEvents:UIControlEventTouchUpInside];
-     [[UIApplication sharedApplication].windows.firstObject.rootViewController.view addSubview:b];
- });
+void UnityUpdate_Hooked() {
+    // Call original Update
+    if (orig_UnityUpdate) orig_UnityUpdate();
+
+    // Patch JumpHeight every frame
+    PatchJumpHeight(g_PlayerPtr);
 }
 
+// --- dylib constructor ---
 __attribute__((constructor))
 static void init() {
-    addButton();  // Button appears after 4 sec
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSLog(@"JumpHeight patch dylib loaded!");
+
+        // TODO: Set g_PlayerPtr to actual CharacterMotorConfig pointer
+        // g_PlayerPtr = <player pointer>;
+
+        // TODO: Hook Unity Update if you want continuous patch
+        // MSHookFunction((void*)UnityUpdateRVA, (void*)UnityUpdate_Hooked, (void**)&orig_UnityUpdate);
+
+        // Or just patch once if pointer is valid
+        PatchJumpHeight(g_PlayerPtr);
+    });
 }
