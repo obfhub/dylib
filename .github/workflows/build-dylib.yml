@@ -1,27 +1,31 @@
-name: Build Subway Mod Menu
+name: Build iOS Dylib
 
-on: [push, workflow_dispatch]
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-latest
+
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Build arm64 dylib
-      run: |
-        SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-        clang -arch arm64 \
-              -shared -fobjc-arc \
-              -isysroot "$SDK" \
-              -miphoneos-version-min=13.0 \
-              -o SubwayModMenu.dylib modmenu.m \
-              -framework UIKit -framework Foundation
+      - name: Set up Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app
 
-        file SubwayModMenu.dylib
+      - name: Build JumpHeight dylib
+        run: |
+          mkdir -p build
+          xcrun -sdk iphoneos clang -arch arm64 -shared -o build/JumpHeight.dylib JumpHeight.cpp -framework UIKit
+          ls -lh build/
 
-    - name: Upload
-      uses: actions/upload-artifact@v4
-      with:
-        name: SubwayModMenu.dylib
-        path: SubwayModMenu.dylib
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: JumpHeight-dylib
+          path: build/JumpHeight.dylib
